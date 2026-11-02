@@ -61,11 +61,13 @@ function rememberHooked(payload: Record<string, unknown>) {
 function followTranscripts(payload: Record<string, unknown>) {
   const sessionId = payload.session_id;
   if (typeof sessionId !== "string" || !sessionId) return;
-  if (payload.hook_event_name === "SessionEnd") {
+  // /office close로 끊은 세션도 transcript를 더 읽을 필요가 없다. 다시 연결하면 다음 hook에서 다시 읽는다.
+  if (payload.hook_event_name === "SessionEnd" || payload.hook_event_name === "OfficeDisconnect") {
     stopFollowing(sessionId);
     return;
   }
 
+  if (store().state.sessions[sessionId]?.closed) return;
   const transcript = payload.transcript_path;
   if (typeof transcript !== "string" || !transcript) return;
   // followTranscript는 같은 파일에 대해 처음 넘긴 콜백만 쓰므로, 아직 판단하지 못한 결과도 그 콜백이 들고 있는다.

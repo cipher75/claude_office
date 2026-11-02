@@ -31,6 +31,8 @@ export type Session = {
   // 세션을 연 폴더의 전체 경로. /clear로 같은 곳에서 시작한 새 세션을 알아보는 데만 쓰고, 호스팅으로는 보내지 않는다.
   cwd?: string;
   connected: boolean;
+  // /office close로 연결을 끊었다. 다시 /office로 연결하기 전까지 이 세션의 이벤트를 반영하지 않는다.
+  closed?: boolean;
   // 세션이 연결되어 있고, 아직 일이 없었거나, 턴이 진행 중이거나, 일하거나 기다리는 캐릭터가 있으면 사무실에 불이 켜진다.
   lit: boolean;
   // 사용자가 요청을 보낸 뒤(UserPromptSubmit) 턴이 끝날 때(Stop)까지. 도구 호출 사이에 생각하는 동안에도 불을 켜 둔다.
