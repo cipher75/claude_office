@@ -27,6 +27,9 @@ export function applyHookEvent(
 
   const eventName = text(payload.hook_event_name);
   const revived = state.sessions[sessionId] ? undefined : state.retired?.[sessionId];
+  // 이 hook들은 sub-agent 안의 호출까지 받으려고 프로젝트 설정에 걸려 있어서, /office로 연결하지 않은
+  // 세션에서도 온다. 사무실이 알고 있는 세션의 것만 받는다.
+  if (eventName && FROM_PROJECT_SETTINGS.has(eventName) && !state.sessions[sessionId] && !revived) return state;
   let session = pruneEnded(
     state.sessions[sessionId] ?? revived ?? newSession(sessionId, payload, eventName),
     now
@@ -255,6 +258,10 @@ function targetOf(fields: Record<string, unknown>): string | undefined {
 function markWaiting(session: Session, payload: Payload, now: number): Session {
   const toolName = text(payload.tool_name);
   const key = stable(payload.tool_input);
+  // sub-agent 안의 호출은 PreToolUse가 오지 않아 사무실에 캐릭터가 없다. 본 세션의 캐릭터와 짝짓지 않고
+  // 허용 요청만으로 ? 캐릭터를 만든다.
+  const agentId = text(payload.agent_id);
+  if (agentId) return toolName ? withOrphan(session, payload, now, agentId) : session;
   // 허용 요청에는 tool_use_id가 없어 도구 이름과 입력으로 짝짓는다. Claude Code는 호출을 시작하며
   // PreToolUse를 보낸 직후 그 호출의 허용을 묻는다(실제 세션 33건 모두 가장 최근에 시작한 호출이었고,
   // 간격은 19–127ms). 그래서 가장 최근에 시작한 호출부터 짝짓는다. 입력이 같은 호출끼리 짝이
@@ -268,15 +275,23 @@ function markWaiting(session: Session, payload: Payload, now: number): Session {
   // 허용 창은 떠 있으므로 허용 요청의 도구와 입력으로 허용 대기 캐릭터를 만든다. 진짜 tool_use_id는
   // 그 호출의 다음 신호가 올 때 adoptOrphan이 이어 붙인다.
   if (!toolName) return session;
+  return withOrphan(session, payload, now);
+}
+
+function withOrphan(session: Session, payload: Payload, now: number, agentId?: string): Session {
   const orphan: Character = {
     ...startCharacter(payload, now),
     id: `permission-${now}-${session.characters.length}`,
     status: "waiting",
     waitingAt: now,
     orphan: true,
+    ...(agentId ? { agentId } : {}),
   };
   return { ...session, connected: true, characters: [...session.characters, orphan] };
 }
+
+// 프로젝트 설정(.claude/settings.json)에 걸린 hook. 나머지는 /office 스킬에 걸려 연결한 세션에서만 온다.
+const FROM_PROJECT_SETTINGS = new Set(["PermissionRequest", "PermissionDenied", "PostToolUse", "PostToolUseFailure"]);
 
 // tool_use_id를 담고 오는 신호들. 이 id를 모르는 캐릭터에게 이어 붙일 수 있다.
 const CARRIES_CALL_ID = new Set([
@@ -294,8 +309,11 @@ function adoptOrphan(session: Session, payload: Payload): Session {
   const toolName = text(payload.tool_name);
   if (!id || !toolName || session.characters.some((c) => c.id === id)) return session;
   const key = stable(payload.tool_input);
-  const orphans = session.characters.filter((c) => c.orphan && c.toolName === toolName);
-  const orphan = [...orphans].reverse().find((c) => stable(c.toolInput) === key) ?? orphans[orphans.length - 1];
+  // sub-agent 안의 호출은 허용 없이 끝나는 것도 Post hook이 오므로, 같은 sub-agent의 입력이 같은 ?에만 이어 붙인다.
+  const agentId = text(payload.agent_id);
+  const orphans = session.characters.filter((c) => c.orphan && c.toolName === toolName && c.agentId === agentId);
+  const sameInput = [...orphans].reverse().find((c) => stable(c.toolInput) === key);
+  const orphan = agentId ? sameInput : (sameInput ?? orphans[orphans.length - 1]);
   if (!orphan) return session;
   return {
     ...session,
