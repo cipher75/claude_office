@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { OfficeView } from "./office-view";
-import type { OfficeState } from "./types";
+import type { Character, OfficeState } from "./types";
 
 // 테스트가 서버 대신 연결을 열고, 끊고, 상태를 보낼 수 있는 EventSource.
 class FakeEventSource {
@@ -39,6 +39,32 @@ describe("세션 탭", () => {
 
     send({ ...empty("i1"), sessions: { a: session("a", "blog"), b: session("b", "shop") }, order: ["a", "b"] });
 
+    expect(screen.getByRole("tab", { name: /shop/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("종료된 세션의 탭은 남은 캐릭터가 나가고 나면 사라지고, 다시 연결하면 돌아온다", () => {
+    render(<OfficeView />);
+    const leaving: Character = { id: "t1", kind: "tool", status: "cancelled", label: "Read", toolName: "Read", toolInput: {}, since: 0, endedAt: 1 };
+    const session = (id: string, name: string, connected: boolean, characters: Character[] = []) => ({
+      id, name, connected, lit: connected, doneCount: 1, characters,
+    });
+    const state = (shopConnected: boolean, shopCharacters: Character[] = []) => ({
+      ...empty("i1"),
+      sessions: { a: session("a", "blog", true), b: session("b", "shop", shopConnected, shopCharacters) },
+      order: ["a", "b"],
+    });
+    send(state(true));
+    expect(screen.getByRole("tab", { name: /shop/ })).toHaveAttribute("aria-selected", "true");
+
+    // 끝난 직후에는 남은 캐릭터가 문밖으로 나가는 동안 탭을 보여준다.
+    send(state(false, [leaving]));
+    expect(screen.getByRole("tab", { name: /shop/ })).toBeInTheDocument();
+
+    send(state(false));
+    expect(screen.queryByRole("tab", { name: /shop/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /blog/ })).toHaveAttribute("aria-selected", "true");
+
+    send(state(true));
     expect(screen.getByRole("tab", { name: /shop/ })).toHaveAttribute("aria-selected", "true");
   });
 
