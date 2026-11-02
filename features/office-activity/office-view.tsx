@@ -49,12 +49,16 @@ export function OfficeBoard({
   staleSessions = {},
 }: OfficeBoardProps) {
   const [picked, setPicked] = useState<string | null>(null);
-  // 새 세션이 연결되면 그 탭을 바로 보여준다. 고른 탭이 사라지면 가장 최근 세션을 보여준다.
-  const [seen, setSeen] = useState<string[]>([]);
-  if (state.order.join() !== seen.join()) {
-    const fresh = state.order.filter((id) => !seen.includes(id));
-    setSeen(state.order);
-    if (fresh.length) setPicked(fresh[fresh.length - 1]);
+  // 새 세션이 연결되거나, 퇴근했던(불 꺼진) 세션이 다시 일을 시작하면 그 탭을 바로 보여준다.
+  // 고른 탭이 사라지면 가장 최근 세션을 보여준다.
+  const [seen, setSeen] = useState<Record<string, boolean>>({});
+  const litNow = Object.fromEntries(state.order.map((id) => [id, state.sessions[id].lit]));
+  if (JSON.stringify(litNow) !== JSON.stringify(seen)) {
+    const fresh = state.order.filter((id) => !(id in seen));
+    const woke = state.order.filter((id) => seen[id] === false && litNow[id]);
+    setSeen(litNow);
+    const next = fresh.length ? fresh[fresh.length - 1] : woke[woke.length - 1];
+    if (next) setPicked(next);
   }
   const selectedId = picked && state.sessions[picked] ? picked : state.order[state.order.length - 1];
   const session = selectedId ? state.sessions[selectedId] : undefined;

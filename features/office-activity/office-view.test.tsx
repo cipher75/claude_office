@@ -41,6 +41,34 @@ describe("세션 탭", () => {
 
     expect(screen.getByRole("tab", { name: /shop/ })).toHaveAttribute("aria-selected", "true");
   });
+
+  test("퇴근했던 세션이 다시 일을 시작하면 그 탭으로 옮겨 간다", () => {
+    render(<OfficeView />);
+    const session = (id: string, name: string, lit: boolean) => ({
+      id, name, connected: true, lit, doneCount: 1, characters: [],
+    });
+    const both = (blogLit: boolean, shopLit: boolean) => ({
+      ...empty("i1"),
+      sessions: { a: session("a", "blog", blogLit), b: session("b", "shop", shopLit) },
+      order: ["a", "b"],
+    });
+    send(both(false, true));
+    expect(screen.getByRole("tab", { name: /shop/ })).toHaveAttribute("aria-selected", "true");
+
+    send(both(true, true));
+    expect(screen.getByRole("tab", { name: /blog/ })).toHaveAttribute("aria-selected", "true");
+
+    // 계속 일하던 세션에 새 일이 생기는 것만으로는 탭을 옮기지 않는다.
+    const busyShop = both(true, true);
+    busyShop.sessions.b.doneCount = 5;
+    send(busyShop);
+    expect(screen.getByRole("tab", { name: /blog/ })).toHaveAttribute("aria-selected", "true");
+
+    // 그 세션이 퇴근했다가 다시 일을 시작하면 옮겨 간다.
+    send(both(true, false));
+    send(both(true, true));
+    expect(screen.getByRole("tab", { name: /shop/ })).toHaveAttribute("aria-selected", "true");
+  });
 });
 
 describe("화면이 지금 상태를 보여주지 못할 때", () => {
