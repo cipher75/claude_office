@@ -555,6 +555,19 @@ describe("/office close", () => {
     expect(session(state).characters.map((c) => c.id)).toEqual(["t1"]);
   });
 
+  test("연결하지 않은 세션의 transcript에서 읽은 이벤트는 세션을 만들지 않는다", () => {
+    const read = (name: string) => ({ hook_event_name: name, session_id: S, tool_use_id: "t1", tool_name: "Bash" });
+    const state = apply(
+      emptyOfficeState(),
+      read("TranscriptExecuted"),
+      read("TranscriptNotExecuted"),
+      read("TranscriptUnreliable"),
+      read("TranscriptTaskFinished")
+    );
+
+    expect(state.sessions[S]).toBeUndefined();
+  });
+
   test("사무실이 모르는 세션의 끊기 신호는 세션을 만들지 않는다", () => {
     expect(apply(emptyOfficeState(), disconnect).sessions[S]).toBeUndefined();
   });

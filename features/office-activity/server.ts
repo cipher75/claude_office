@@ -67,7 +67,9 @@ function followTranscripts(payload: Record<string, unknown>) {
     return;
   }
 
-  if (store().state.sessions[sessionId]?.closed) return;
+  // 연결하지 않았거나 끊은 세션의 transcript는 읽지 않는다.
+  const session = store().state.sessions[sessionId];
+  if (!session || session.closed) return;
   const transcript = payload.transcript_path;
   if (typeof transcript !== "string" || !transcript) return;
   // followTranscript는 같은 파일에 대해 처음 넘긴 콜백만 쓰므로, 아직 판단하지 못한 결과도 그 콜백이 들고 있는다.
