@@ -555,6 +555,18 @@ describe("/office close", () => {
     expect(session(state).characters.map((c) => c.id)).toEqual(["t1"]);
   });
 
+  test("사용자가 Esc로 중단하면 Stop 없이도 턴이 끝나 일하던 캐릭터가 나가고 불이 꺼진다", () => {
+    const state = apply(
+      emptyOfficeState(),
+      connect,
+      { hook_event_name: "UserPromptSubmit", session_id: S },
+      pre,
+      { hook_event_name: "TranscriptInterrupted", session_id: S }
+    );
+
+    expect(session(state)).toMatchObject({ inTurn: false, lit: false, characters: [] });
+  });
+
   test("연결하지 않은 세션의 transcript에서 읽은 이벤트는 세션을 만들지 않는다", () => {
     const read = (name: string) => ({ hook_event_name: name, session_id: S, tool_use_id: "t1", tool_name: "Bash" });
     const state = apply(
@@ -562,7 +574,8 @@ describe("/office close", () => {
       read("TranscriptExecuted"),
       read("TranscriptNotExecuted"),
       read("TranscriptUnreliable"),
-      read("TranscriptTaskFinished")
+      read("TranscriptTaskFinished"),
+      read("TranscriptInterrupted")
     );
 
     expect(state.sessions[S]).toBeUndefined();

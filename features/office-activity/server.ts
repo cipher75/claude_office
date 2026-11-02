@@ -5,6 +5,7 @@ import { createRelay } from "./hosted/relay";
 import { recordRawEvent } from "./raw-event-log";
 import { applyHookEvent, emptyOfficeState, pruneOfficeState } from "./session-state";
 import { finishedTaskToolUseIds } from "./task-notification";
+import { hasInterruptedTurn } from "./turn-interrupt";
 import { emptyReaderState, followTranscript, readCallOutcomes, stopFollowing } from "./transcript-watch";
 import type { OfficeState } from "./types";
 
@@ -95,6 +96,8 @@ function followTranscripts(payload: Record<string, unknown>) {
     for (const toolUseId of finishedTaskToolUseIds(lines)) {
       ingestHookEvent({ hook_event_name: "TranscriptTaskFinished", session_id: sessionId, tool_use_id: toolUseId });
     }
+    // Esc로 중단하면 Stop hook이 오지 않으므로, transcript의 중단 메시지로 턴이 끝난 것을 안다.
+    if (hasInterruptedTurn(lines)) ingestHookEvent({ hook_event_name: "TranscriptInterrupted", session_id: sessionId });
   });
 }
 

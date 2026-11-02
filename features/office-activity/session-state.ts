@@ -99,7 +99,9 @@ export function applyHookEvent(
       session = finishCall(session, text(payload.tool_use_id), now);
       break;
     // 턴이 끝나면 본 세션의 허용 창은 남지 않으므로, 시작을 보지 못한 세션도 이제 상태를 안다.
+    // 사용자가 Esc로 중단한 턴은 Stop hook 없이 끝난다. 서버가 transcript의 중단 메시지로 알려 준다.
     case "Stop":
+    case "TranscriptInterrupted":
       session = { ...finishWorking(cancelWaiting(session, now)), priorUnknown: false, inTurn: false };
       break;
     case "SessionEnd":
@@ -323,6 +325,7 @@ const ONLY_KNOWN_SESSIONS = new Set([
   "TranscriptNotExecuted",
   "TranscriptUnreliable",
   "TranscriptTaskFinished",
+  "TranscriptInterrupted",
 ]);
 
 // tool_use_id를 담고 오는 신호들. 이 id를 모르는 캐릭터에게 이어 붙일 수 있다.
