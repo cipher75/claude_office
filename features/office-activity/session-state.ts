@@ -29,10 +29,9 @@ export function applyHookEvent(
 
   const eventName = text(payload.hook_event_name);
   const revived = state.sessions[sessionId] ? undefined : state.retired?.[sessionId];
-  // 이 hook들은 sub-agent 안의 호출까지 받으려고 프로젝트 설정에 걸려 있어서, /office로 연결하지 않은
-  // 세션에서도 온다. 사무실이 알고 있는 세션의 것만 받는다.
+  // 이 이벤트들은 /office로 연결하지 않은 세션에서도 온다. 사무실이 알고 있는 세션의 것만 받는다.
   const known = state.sessions[sessionId] ?? revived;
-  if (eventName && FROM_PROJECT_SETTINGS.has(eventName) && !known) return state;
+  if (eventName && ONLY_KNOWN_SESSIONS.has(eventName) && !known) return state;
   // /office close로 연결을 끊은 세션은 hook이 계속 오더라도, 다시 연결하기 전까지 아무것도 반영하지 않는다.
   if (known?.closed && eventName !== "OfficeConnect") return state;
   if (eventName === "OfficeDisconnect" && !known) return state;
@@ -311,8 +310,20 @@ function withOrphan(session: Session, payload: Payload, now: number, agentId?: s
   return { ...session, connected: true, characters: [...session.characters, orphan] };
 }
 
-// 프로젝트 설정(.claude/settings.json)에 걸린 hook. 나머지는 /office 스킬에 걸려 연결한 세션에서만 온다.
-const FROM_PROJECT_SETTINGS = new Set(["PermissionRequest", "PermissionDenied", "PostToolUse", "PostToolUseFailure"]);
+// 사무실이 이미 아는 세션에만 반영하는 이벤트.
+// - 프로젝트·사용자 설정에 걸린 hook: sub-agent 안의 호출까지 받으려고 설정에 두어서, 연결하지 않은 세션에서도 온다.
+//   나머지 hook은 /office 스킬에 걸려 연결한 세션에서만 온다.
+// - 서버가 transcript에서 읽어 만든 이벤트: 연결하지 않은 세션의 transcript에서 나왔을 수 있다.
+const ONLY_KNOWN_SESSIONS = new Set([
+  "PermissionRequest",
+  "PermissionDenied",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "TranscriptExecuted",
+  "TranscriptNotExecuted",
+  "TranscriptUnreliable",
+  "TranscriptTaskFinished",
+]);
 
 // tool_use_id를 담고 오는 신호들. 이 id를 모르는 캐릭터에게 이어 붙일 수 있다.
 const CARRIES_CALL_ID = new Set([
