@@ -102,11 +102,18 @@ export function applyHookEvent(
     // 사용자가 Esc로 중단한 턴은 Stop hook 없이 끝난다. 서버가 transcript의 중단 메시지로 알려 준다.
     case "Stop":
     case "TranscriptInterrupted":
-      session = { ...finishWorking(cancelWaiting(session, now)), priorUnknown: false, inTurn: false };
+      session = { ...finishWorking(cancelWaiting(session, now)), priorUnknown: false, inTurn: false, turnEndedAt: now };
       break;
     case "SessionEnd":
-      session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false };
+      session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, turnEndedAt: now };
       break;
+    // transcript는 주기적으로 읽어서 턴의 마지막 모델 호출 기록을 Stop보다 늦게 읽을 수 있다.
+    // 마지막으로 턴이 끝난 뒤에 시작한 호출일 때만 턴이 진행 중이라고 본다.
+    case "TranscriptModelRequest": {
+      const at = typeof payload.requested_at === "number" ? payload.requested_at : undefined;
+      if (at !== undefined && at > (session.turnEndedAt ?? 0)) session = { ...session, inTurn: true };
+      break;
+    }
     default:
       session = { ...session, connected: true };
   }
@@ -326,6 +333,7 @@ const ONLY_KNOWN_SESSIONS = new Set([
   "TranscriptUnreliable",
   "TranscriptTaskFinished",
   "TranscriptInterrupted",
+  "TranscriptModelRequest",
 ]);
 
 // tool_use_id를 담고 오는 신호들. 이 id를 모르는 캐릭터에게 이어 붙일 수 있다.
