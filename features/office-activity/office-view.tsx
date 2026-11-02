@@ -49,18 +49,20 @@ export function OfficeBoard({
   staleSessions = {},
 }: OfficeBoardProps) {
   const [picked, setPicked] = useState<string | null>(null);
+  // 종료된 세션(세션이 끝났거나 /office close로 끊은 세션)은 탭에서 뺀다. 남은 캐릭터가 문밖으로 나가는 동안만 보여준다.
+  const tabs = state.order.filter((id) => isShown(state.sessions[id]));
   // 새 세션이 연결되거나, 퇴근했던(불 꺼진) 세션이 다시 일을 시작하면 그 탭을 바로 보여준다.
   // 고른 탭이 사라지면 가장 최근 세션을 보여준다.
   const [seen, setSeen] = useState<Record<string, boolean>>({});
-  const litNow = Object.fromEntries(state.order.map((id) => [id, state.sessions[id].lit]));
+  const litNow = Object.fromEntries(tabs.map((id) => [id, state.sessions[id].lit]));
   if (JSON.stringify(litNow) !== JSON.stringify(seen)) {
-    const fresh = state.order.filter((id) => !(id in seen));
-    const woke = state.order.filter((id) => seen[id] === false && litNow[id]);
+    const fresh = tabs.filter((id) => !(id in seen));
+    const woke = tabs.filter((id) => seen[id] === false && litNow[id]);
     setSeen(litNow);
     const next = fresh.length ? fresh[fresh.length - 1] : woke[woke.length - 1];
     if (next) setPicked(next);
   }
-  const selectedId = picked && state.sessions[picked] ? picked : state.order[state.order.length - 1];
+  const selectedId = picked && tabs.includes(picked) ? picked : tabs[tabs.length - 1];
   const session = selectedId ? state.sessions[selectedId] : undefined;
   const selectedStale = selectedId ? staleSessions[selectedId] : undefined;
 
@@ -93,12 +95,12 @@ export function OfficeBoard({
         </Notice>
       ) : null}
 
-      {state.order.length > 0 ? (
+      {tabs.length > 0 ? (
         <Tabs value={selectedId} onValueChange={(value) => setPicked(String(value))}>
           {/* 탭 목록의 기본 높이(h-9)는 한 줄용이라, 줄이 늘어나면 탭이 겹친다. 넓은 화면에서는 줄바꿈한 만큼
               높이를 갖게 하고, 좁은 화면에서는 한 줄로 두고 옆으로 밀어 본다. */}
           <TabsList className="w-full justify-start rounded-2xl group-data-horizontal/tabs:h-auto max-sm:overflow-x-auto sm:w-fit sm:flex-wrap">
-            {state.order.map((id) => (
+            {tabs.map((id) => (
               <TabsTrigger
                 key={id}
                 value={id}
@@ -214,6 +216,10 @@ function SessionBadges({ session }: { session: Session }) {
       <Badge variant="secondary">오늘 완료 {session.doneCount}</Badge>
     </div>
   );
+}
+
+function isShown(session: Session): boolean {
+  return session.connected || session.characters.length > 0;
 }
 
 function statusText(session: Session): string {
