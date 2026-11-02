@@ -9,6 +9,8 @@ type Payload = Record<string, unknown>;
 
 // 허용되거나 거절된 캐릭터가 퇴근 장면을 보여줄 시간. 판단이 아니라 화면 정리에만 쓴다.
 const ENDED_KEEP_MS = 8_000;
+// 같은 허용 요청이 여러 hook으로 들어오는 간격(실제 20ms 안팎)보다 넉넉하고, 허용 창이 닫히고 다음 창이 뜨는 간격보다 짧다.
+const DUPLICATE_REQUEST_MS = 1_000;
 const LABEL_MAX = 40;
 // 탭에서 내린 세션을 되살리려고 기억해 두는 최대 개수
 const RETIRED_MAX = 20;
@@ -29,7 +31,11 @@ export function applyHookEvent(
   const revived = state.sessions[sessionId] ? undefined : state.retired?.[sessionId];
   // 이 hook들은 sub-agent 안의 호출까지 받으려고 프로젝트 설정에 걸려 있어서, /office로 연결하지 않은
   // 세션에서도 온다. 사무실이 알고 있는 세션의 것만 받는다.
-  if (eventName && FROM_PROJECT_SETTINGS.has(eventName) && !state.sessions[sessionId] && !revived) return state;
+  const known = state.sessions[sessionId] ?? revived;
+  if (eventName && FROM_PROJECT_SETTINGS.has(eventName) && !known) return state;
+  // /office close로 연결을 끊은 세션은 hook이 계속 오더라도, 다시 연결하기 전까지 아무것도 반영하지 않는다.
+  if (known?.closed && eventName !== "OfficeConnect") return state;
+  if (eventName === "OfficeDisconnect" && !known) return state;
   let session = pruneEnded(
     state.sessions[sessionId] ?? revived ?? newSession(sessionId, payload, eventName),
     now
@@ -39,7 +45,11 @@ export function applyHookEvent(
 
   switch (eventName) {
     case "OfficeConnect":
-      session = { ...session, connected: true };
+      session = { ...session, connected: true, closed: false };
+      break;
+    // 세션이 끝난 것처럼 남은 캐릭터를 모두 내보내고, 이후 이벤트는 위에서 버린다.
+    case "OfficeDisconnect":
+      session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, closed: true };
       break;
     case "UserPromptSubmit":
       session = { ...session, connected: true, inTurn: true };
@@ -258,9 +268,20 @@ function targetOf(fields: Record<string, unknown>): string | undefined {
 function markWaiting(session: Session, payload: Payload, now: number): Session {
   const toolName = text(payload.tool_name);
   const key = stable(payload.tool_input);
+  // 같은 허용 요청이 hook 여러 벌(예전 /office 스킬 hook과 프로젝트 설정 hook)로 거의 동시에 들어올 수 있다.
+  // 허용 창은 한 번에 하나씩 뜨므로, 같은 도구와 입력으로 방금 회의실에 들어간 캐릭터가 있으면 같은 요청이다.
+  const agentId = text(payload.agent_id);
+  const duplicate = session.characters.some(
+    (c) =>
+      c.status === "waiting" &&
+      c.toolName === toolName &&
+      c.agentId === agentId &&
+      stable(c.toolInput) === key &&
+      now - (c.waitingAt ?? 0) < DUPLICATE_REQUEST_MS
+  );
+  if (duplicate) return session;
   // sub-agent 안의 호출은 PreToolUse가 오지 않아 사무실에 캐릭터가 없다. 본 세션의 캐릭터와 짝짓지 않고
   // 허용 요청만으로 ? 캐릭터를 만든다.
-  const agentId = text(payload.agent_id);
   if (agentId) return toolName ? withOrphan(session, payload, now, agentId) : session;
   // 허용 요청에는 tool_use_id가 없어 도구 이름과 입력으로 짝짓는다. Claude Code는 호출을 시작하며
   // PreToolUse를 보낸 직후 그 호출의 허용을 묻는다(실제 세션 33건 모두 가장 최근에 시작한 호출이었고,

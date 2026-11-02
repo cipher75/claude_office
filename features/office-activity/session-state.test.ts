@@ -506,6 +506,60 @@ describe("hook을 놓쳐도 허용 대기는 보인다", () => {
 });
 
 // sub-agent 안의 호출은 PreToolUse가 오지 않고, 허용 요청과 끝 신호만 프로젝트 설정의 hook으로 온다.
+// 예전 /office 스킬 hook과 프로젝트 설정 hook이 함께 걸린 세션에서는 같은 허용 요청이 20ms 안팎으로 두 번 온다.
+describe("같은 허용 요청이 여러 번 들어올 때", () => {
+  const push = { command: "git push" };
+  const pre = { hook_event_name: "PreToolUse", session_id: S, tool_use_id: "t1", tool_name: "Bash", tool_input: push };
+  const permission = { hook_event_name: "PermissionRequest", session_id: S, tool_name: "Bash", tool_input: push };
+  const statusOf = (state: OfficeState) => session(state).characters.map((c) => c.status);
+
+  test("곧바로 다시 온 같은 허용 요청은 ?를 하나 더 만들지 않는다", () => {
+    expect(statusOf(apply(emptyOfficeState(), connect, pre, permission, permission))).toEqual(["waiting"]);
+  });
+
+  test("PreToolUse를 놓친 호출이나 sub-agent 호출도 ?는 하나만 생긴다", () => {
+    const fromAgent = { ...permission, agent_id: "agent-1" };
+    expect(statusOf(apply(emptyOfficeState(), connect, permission, permission))).toEqual(["waiting"]);
+    expect(statusOf(apply(emptyOfficeState(), connect, fromAgent, fromAgent))).toEqual(["waiting"]);
+  });
+
+  test("시간이 지나 다시 온 같은 입력의 허용 요청은 새 요청으로 본다", () => {
+    let state = apply(emptyOfficeState(), connect, permission);
+    state = applyHookEvent(state, permission, 1_000 + 5_000);
+
+    expect(statusOf(state)).toEqual(["waiting", "waiting"]);
+  });
+});
+
+describe("/office close", () => {
+  const disconnect = { hook_event_name: "OfficeDisconnect", session_id: S };
+  const pre = { hook_event_name: "PreToolUse", session_id: S, tool_use_id: "t1", tool_name: "Read", tool_input: {} };
+
+  test("연결을 끊으면 남은 캐릭터가 나가고 세션은 종료로 보인다", () => {
+    const state = apply(emptyOfficeState(), connect, pre, disconnect);
+
+    expect(session(state)).toMatchObject({ connected: false, closed: true, lit: false, characters: [] });
+  });
+
+  test("끊은 뒤 오는 hook 이벤트는 반영하지 않는다", () => {
+    const closed = apply(emptyOfficeState(), connect, disconnect);
+    const after = apply(closed, pre, { hook_event_name: "UserPromptSubmit", session_id: S });
+
+    expect(after).toBe(closed);
+  });
+
+  test("다시 /office로 연결하면 이벤트를 다시 받는다", () => {
+    const state = apply(emptyOfficeState(), connect, disconnect, connect, pre);
+
+    expect(session(state)).toMatchObject({ connected: true, closed: false });
+    expect(session(state).characters.map((c) => c.id)).toEqual(["t1"]);
+  });
+
+  test("사무실이 모르는 세션의 끊기 신호는 세션을 만들지 않는다", () => {
+    expect(apply(emptyOfficeState(), disconnect).sessions[S]).toBeUndefined();
+  });
+});
+
 describe("sub-agent 안의 허용 대기", () => {
   const push = { command: "git push" };
   const fromAgent = (name: string, more: Record<string, unknown> = {}) => ({
