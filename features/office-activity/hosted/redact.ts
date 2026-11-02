@@ -21,7 +21,7 @@ export function redactState(state: OfficeState): OfficeState {
   return redacted;
 }
 
-function redactCharacter(character: Character): Character {
+function redactCharacter({ agentId: _agentId, ...character }: Character): Character {
   return { ...character, label: hostedLabel(character), toolInput: null };
 }
 

@@ -505,6 +505,52 @@ describe("hook을 놓쳐도 허용 대기는 보인다", () => {
   });
 });
 
+// sub-agent 안의 호출은 PreToolUse가 오지 않고, 허용 요청과 끝 신호만 프로젝트 설정의 hook으로 온다.
+describe("sub-agent 안의 허용 대기", () => {
+  const push = { command: "git push" };
+  const fromAgent = (name: string, more: Record<string, unknown> = {}) => ({
+    hook_event_name: name,
+    session_id: S,
+    agent_id: "agent-1",
+    tool_name: "Bash",
+    tool_input: push,
+    ...more,
+  });
+  const mainBash = { hook_event_name: "PreToolUse", session_id: S, tool_use_id: "main", tool_name: "Bash", tool_input: push };
+  const statusOf = (state: OfficeState) => session(state).characters.map((c) => [c.id, c.status]);
+
+  test("본 세션에 같은 도구의 호출이 있어도 짝짓지 않고 sub-agent의 ? 캐릭터를 따로 만든다", () => {
+    const state = apply(emptyOfficeState(), connect, mainBash, fromAgent("PermissionRequest"));
+
+    expect(statusOf(state)).toEqual([["main", "working"], [expect.stringMatching(/^permission-/), "waiting"]]);
+    expect(session(state).characters[1]).toMatchObject({ agentId: "agent-1", label: "Bash · git push" });
+  });
+
+  test("그 sub-agent의 Post hook이 오면 허용된 것으로 끝낸다", () => {
+    const state = apply(emptyOfficeState(), connect, fromAgent("PermissionRequest"), fromAgent("PostToolUse", { tool_use_id: "a1" }));
+
+    expect(statusOf(state)).toEqual([["a1", "approved"]]);
+  });
+
+  test("허용 없이 끝난 다른 호출이나 본 세션의 Post hook은 sub-agent의 ?에 이어 붙지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(),
+      connect,
+      fromAgent("PermissionRequest"),
+      fromAgent("PostToolUse", { tool_use_id: "a0", tool_input: { command: "ls" } }),
+      { hook_event_name: "PostToolUse", session_id: S, tool_use_id: "m1", tool_name: "Bash", tool_input: { command: "pwd" } }
+    );
+
+    expect(statusOf(state)).toEqual([[expect.stringMatching(/^permission-/), "waiting"]]);
+  });
+
+  test("/office로 연결하지 않은 세션의 허용 요청과 끝 신호는 사무실에 들이지 않는다", () => {
+    const state = apply(emptyOfficeState(), fromAgent("PermissionRequest"), fromAgent("PostToolUse", { tool_use_id: "a1" }));
+
+    expect(state.sessions[S]).toBeUndefined();
+  });
+});
+
 describe("서버가 세션의 시작을 보지 못했을 때", () => {
   const pre = { hook_event_name: "PreToolUse", session_id: S, tool_use_id: "t1", tool_name: "Read", tool_input: {} };
 

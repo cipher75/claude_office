@@ -19,32 +19,8 @@ hooks:
         - type: http
           url: http://127.0.0.1:4747/api/events
           timeout: 5
-  PermissionRequest:
-    - matcher: "*"
-      hooks:
-        - type: http
-          url: http://127.0.0.1:4747/api/events
-          timeout: 5
-  PermissionDenied:
-    - matcher: "*"
-      hooks:
-        - type: http
-          url: http://127.0.0.1:4747/api/events
-          timeout: 5
   Notification:
     - hooks:
-        - type: http
-          url: http://127.0.0.1:4747/api/events
-          timeout: 5
-  PostToolUse:
-    - matcher: "*"
-      hooks:
-        - type: http
-          url: http://127.0.0.1:4747/api/events
-          timeout: 5
-  PostToolUseFailure:
-    - matcher: "*"
-      hooks:
         - type: http
           url: http://127.0.0.1:4747/api/events
           timeout: 5
