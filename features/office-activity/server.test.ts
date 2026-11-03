@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { listRawEvents } from "./raw-event-log";
 import { ingestHookEvent, officeSnapshot } from "./server";
+import { redactState } from "./hosted/redact";
 
 // 파일 감시의 타이밍과 분리해, 읽은 줄이 서버를 거쳐 상태 판정에 전달되는 흐름을 검증한다.
 const readers = vi.hoisted(() => new Map<string, (lines: string) => void>());
@@ -20,6 +21,7 @@ function harness() {
   send("OfficeConnect", 1_000, { transcript_path: `/transcripts/${id}.jsonl` });
 
   return {
+    id,
     send,
     session: () => officeSnapshot().sessions[id],
     append: (...entries: unknown[]) => readers.get(id)!(entries.map((entry) => JSON.stringify(entry)).join("\n")),
@@ -44,6 +46,28 @@ afterEach(() => {
   for (const id of [...readers.keys()]) {
     ingestHookEvent({ hook_event_name: "SessionEnd", session_id: id });
   }
+});
+
+describe("종료 세션의 호스팅 전송", () => {
+  test.each(["SessionEnd", "OfficeDisconnect"])("%s 직후의 퇴근 장면은 보내고 캐릭터가 정리되면 목록에서 뺀다", (end) => {
+    const h = harness();
+    h.send("PreToolUse", 2_000, call);
+    h.send("PermissionRequest", 2_100, call);
+    h.send("PermissionDenied", 2_200, call);
+    h.send(end, 2_300);
+
+    const before = officeSnapshot(2_300);
+    const id = h.id;
+    const hosted = redactState(before);
+    expect(hosted.sessions[id]).toMatchObject({ connected: false, characters: [expect.objectContaining({ status: "denied" })] });
+    expect(hosted.order).toContain(id);
+
+    const after = officeSnapshot(10_201);
+    const cleared = redactState(after);
+    expect(after.sessions[id]).toMatchObject({ connected: false, characters: [] });
+    expect(cleared.sessions[id]).toBeUndefined();
+    expect(cleared.order).not.toContain(id);
+  });
 });
 
 describe("transcript의 중단 시각을 상태 판정까지 전달하기", () => {

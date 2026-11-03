@@ -11,12 +11,14 @@ const FILE_TOOLS = new Set(["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"
 export function redactState(state: OfficeState): OfficeState {
   const sessions: Record<string, Session> = {};
   for (const [id, session] of Object.entries(state.sessions)) {
+    // 로컬 화면처럼 퇴근 캐릭터가 남은 종료 세션은 보내고, 완전히 비면 빼서 누적되지 않게 한다.
+    if (!session.connected && session.characters.length === 0) continue;
     const redacted: Session = { ...session, characters: session.characters.map(redactCharacter) };
     delete redacted.cwd;
     sessions[id] = redacted;
   }
   // 탭에서 내린 세션은 로컬에서 되살리는 데만 쓴다.
-  const redacted: OfficeState = { ...state, sessions };
+  const redacted: OfficeState = { ...state, sessions, order: state.order.filter((id) => Object.hasOwn(sessions, id)) };
   delete redacted.retired;
   return redacted;
 }

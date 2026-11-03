@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 
+import { applyHookEvent, emptyOfficeState } from "../session-state";
 import type { OfficeState } from "../types";
 import { createHostedHandlers } from "./handlers";
+import { redactState } from "./redact";
 import type { HostedMachine, HostedStore } from "./types";
 
 const SEND = "send-token-123";
@@ -66,6 +68,42 @@ function view(token: string | null = VIEW) {
 const goodPush = { machine: "work-pc", heartbeatSec: 20, state };
 
 describe("PC가 상태를 올리는 길", () => {
+  test.each(["SessionEnd", "OfficeDisconnect"])("%s로 끝난 세션 51개가 있어도 현재 세션의 갱신을 받는다", async (end) => {
+    const { handlers, store } = setup();
+    let local = emptyOfficeState();
+    let at = 1_000;
+    const send = (id: string, name: string, extra: Record<string, unknown> = {}) => {
+      local = applyHookEvent(local, { session_id: id, hook_event_name: name, ...extra }, ++at);
+    };
+    for (let i = 0; i < 51; i++) {
+      send(`ended-${i}`, "OfficeConnect");
+      send(`ended-${i}`, end);
+    }
+    send("thinking", "OfficeConnect");
+    send("thinking", "UserPromptSubmit");
+    send("waiting", "OfficeConnect");
+    const call = { tool_use_id: "t1", tool_name: "Read", tool_input: { file_path: "/private/PRODUCT.md" } };
+    send("waiting", "PreToolUse", call);
+    send("waiting", "PermissionRequest", call);
+
+    expect((await handlers.push(push({ ...goodPush, state: redactState(local) }))).status).toBe(200);
+    const saved = JSON.parse(store.fields.get("work-pc")!).state as OfficeState;
+    expect(saved.order).toEqual(["thinking", "waiting"]);
+    expect(Object.keys(saved.sessions)).toHaveLength(2);
+    expect(saved.sessions.waiting.characters[0]).toMatchObject({ status: "waiting", toolInput: null });
+    expect(saved.sessions.thinking).toMatchObject({ connected: true, inTurn: true, characters: [] });
+    expect(Object.keys(local.sessions)).toHaveLength(53);
+
+    send("thinking", end);
+    send("waiting", end);
+    expect((await handlers.push(push({ ...goodPush, state: redactState(local) }))).status).toBe(200);
+    expect(JSON.parse(store.fields.get("work-pc")!).state).toMatchObject({ sessions: {}, order: [] });
+
+    send("ended-0", "OfficeConnect");
+    expect((await handlers.push(push({ ...goodPush, state: redactState(local) }))).status).toBe(200);
+    expect(JSON.parse(store.fields.get("work-pc")!).state.order).toEqual(["ended-0"]);
+  });
+
   test("보내기 토큰이 맞으면 받은 시각과 함께 저장한다", async () => {
     const { handlers, store } = setup();
 
