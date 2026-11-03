@@ -87,6 +87,27 @@ describe("호스팅으로 보낼 라벨", () => {
 });
 
 describe("호스팅으로 보낼 상태", () => {
+  test("종료 세션은 순서에서도 빼고, 연결된 대기·생각 중·백그라운드 세션과 로컬 원본은 보존한다", () => {
+    const state = stateWith(character({ status: "waiting" }));
+    const base = state.sessions.s1;
+    state.sessions.ended = { ...base, id: "ended", connected: false, lit: false, characters: [] };
+    state.sessions.closed = { ...base, id: "closed", connected: false, closed: true, lit: false, characters: [] };
+    state.sessions.idle = { ...base, id: "idle", lit: false, characters: [] };
+    state.sessions.thinking = { ...base, id: "thinking", inTurn: true, characters: [] };
+    state.sessions.background = { ...base, id: "background", inTurn: false, characters: [character({ kind: "sub", background: true })] };
+    state.order = ["ended", "thinking", "s1", "closed", "idle", "background"];
+    const original = structuredClone(state);
+
+    const redacted = redactState(state);
+
+    expect(redacted.order).toEqual(["thinking", "s1", "idle", "background"]);
+    expect(Object.keys(redacted.sessions).sort()).toEqual([...redacted.order].sort());
+    expect(redacted.sessions.s1.characters[0].status).toBe("waiting");
+    expect(redacted.sessions.thinking.inTurn).toBe(true);
+    expect(redacted.sessions.background.characters[0].background).toBe(true);
+    expect(state).toEqual(original);
+  });
+
   test("세션 이름, 불, 완료 건수, 캐릭터의 상태와 종류는 그대로 보낸다", () => {
     const redacted = redactState(stateWith(character({ id: "a", status: "waiting", kind: "tool", toolName: "Bash", toolInput: { command: "ls" } })));
 
