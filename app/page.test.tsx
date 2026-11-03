@@ -18,7 +18,7 @@ beforeEach(() => {
 test("연결된 세션이 없으면 사무실 제목과 연결 안내를 보여준다", () => {
   render(<Home />);
 
-  expect(screen.getByRole("heading", { level: 1, name: "Claude 사무실" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "오늘의 사무실" })).toBeInTheDocument();
   expect(screen.getByText("연결된 세션이 없어요", { selector: "[data-slot=empty-title]" })).toBeInTheDocument();
   expect(screen.getByText("/office")).toBeInTheDocument();
 });
