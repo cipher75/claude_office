@@ -122,6 +122,7 @@ export function OfficeBoard({
         key={selectedId ?? "none"}
         characters={session?.characters ?? []}
         lit={session?.lit ?? false}
+        working={session?.inTurn === true}
         hadWork={(session?.doneCount ?? 0) > 0}
         connected={Boolean(session?.connected)}
         alert={
