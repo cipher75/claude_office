@@ -180,9 +180,73 @@
   background: #e6e8ee;
 }
 
-.think {
-  background: #eef0ff;
-  letter-spacing: 0.1em;
+/* 생각 중인 보스 머리 위의 전구. 꺼졌다 켜졌다 하며, 켜지면 노랗게 빛나고 빛줄기가 뻗는다. */
+.bulb {
+  position: absolute;
+  left: calc(var(--x) * var(--p));
+  top: calc((var(--y) - 34) * var(--p));
+  width: calc(19 * var(--p));
+  height: calc(18 * var(--p));
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+.bulb svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.bulbGlass {
+  animation: bulb-glass 1.6s steps(1, end) infinite;
+}
+
+.bulbRays {
+  fill: #ffd84a;
+  animation: bulb-rays 1.6s steps(1, end) infinite;
+}
+
+.bulbShine {
+  fill: #ffffff;
+  animation: bulb-shine 1.6s steps(1, end) infinite;
+}
+
+.bulb {
+  animation: bulb-glow 1.6s steps(1, end) infinite;
+}
+
+@keyframes bulb-glass {
+  0% { fill: #ffe45c; }
+  55% { fill: #9aa0ad; }
+}
+
+@keyframes bulb-rays {
+  0% { opacity: 1; }
+  55% { opacity: 0; }
+}
+
+@keyframes bulb-shine {
+  0% { opacity: 1; }
+  55% { opacity: 0.35; }
+}
+
+@keyframes bulb-glow {
+  0% { filter: drop-shadow(0 0 calc(var(--p) * 2.5) rgba(255, 216, 74, 0.9)); }
+  55% { filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bulb,
+  .bulbGlass,
+  .bulbRays,
+  .bulbShine {
+    animation: none;
+  }
+
+  .bulbGlass {
+    fill: #ffe45c;
+  }
 }
 
 .coffeeBubble {
