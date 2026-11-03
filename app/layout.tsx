@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Claude 사무실",
+  title: "오늘의 사무실",
   description: "Claude Code와 데스크톱 앱의 tool, skill, sub-agent 활동을 사무실 속 캐릭터로 보여줍니다.",
 };
 

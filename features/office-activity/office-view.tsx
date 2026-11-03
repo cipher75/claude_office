@@ -70,7 +70,7 @@ export function OfficeBoard({
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-xl font-semibold tracking-tight">Claude 사무실</h1>
+          <h1 className="font-heading text-xl font-semibold tracking-tight">오늘의 사무실</h1>
           <p className="text-sm text-muted-foreground">{subtitle}</p>
         </div>
         {session ? <SessionBadges session={session} /> : null}

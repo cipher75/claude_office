@@ -56,7 +56,7 @@ function TokenForm({ rejected, onSubmit }: { rejected: boolean; onSubmit: (token
       }}
     >
       <div className="flex flex-col gap-1">
-        <h1 className="font-heading text-xl font-semibold tracking-tight">Claude 사무실</h1>
+        <h1 className="font-heading text-xl font-semibold tracking-tight">오늘의 사무실</h1>
         <p className="text-sm text-muted-foreground">내 PC의 Claude 활동을 보려면 보기 토큰이 필요해요.</p>
       </div>
       <FieldGroup>
