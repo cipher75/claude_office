@@ -53,19 +53,28 @@ export function OfficeBoard({
   const pick = (id: string) => setHistory((ids) => [...ids.filter((other) => other !== id), id]);
   // 종료된 세션(세션이 끝났거나 /office close로 끊은 세션)은 탭에서 뺀다. 남은 캐릭터가 문밖으로 나가는 동안만 보여준다.
   const tabs = state.order.filter((id) => isShown(state.sessions[id]));
+  // 고른 탭이 사라지면 그 전에 활성화했던 탭 중 남아 있는 가장 최근 탭으로 돌아간다.
+  // 한 번도 활성화하지 않았으면 가장 최근에 연결된 세션을 보여준다.
+  const latest = (among: string[]) => history.findLast((id) => among.includes(id)) ?? among[among.length - 1];
+  const selectedId = latest(tabs);
   // 새 세션이 연결되거나, 퇴근했던(불 꺼진) 세션이 다시 일을 시작하면 그 탭을 바로 보여준다.
+  // 보고 있던 탭이 퇴근하면 불 켜진 탭 중 가장 최근에 활성화한 탭으로 옮긴다. 모두 퇴근했으면 그대로 둔다.
   const [seen, setSeen] = useState<Record<string, boolean>>({});
   const litNow = Object.fromEntries(tabs.map((id) => [id, state.sessions[id].lit]));
   if (JSON.stringify(litNow) !== JSON.stringify(seen)) {
     const fresh = tabs.filter((id) => !(id in seen));
     const woke = tabs.filter((id) => seen[id] === false && litNow[id]);
+    const wentHome = selectedId !== undefined && seen[selectedId] === true && !litNow[selectedId];
     setSeen(litNow);
-    const next = fresh.length ? fresh[fresh.length - 1] : woke[woke.length - 1];
+    const next = fresh.length
+      ? fresh[fresh.length - 1]
+      : woke.length
+        ? woke[woke.length - 1]
+        : wentHome
+          ? latest(tabs.filter((id) => litNow[id]))
+          : undefined;
     if (next) pick(next);
   }
-  // 고른 탭이 사라지면 그 전에 활성화했던 탭 중 남아 있는 가장 최근 탭으로 돌아간다.
-  // 한 번도 활성화하지 않았으면 가장 최근에 연결된 세션을 보여준다.
-  const selectedId = history.findLast((id) => tabs.includes(id)) ?? tabs[tabs.length - 1];
   const session = selectedId ? state.sessions[selectedId] : undefined;
   const selectedStale = selectedId ? staleSessions[selectedId] : undefined;
 
