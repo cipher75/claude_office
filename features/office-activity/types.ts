@@ -39,6 +39,8 @@ export type Session = {
   lit: boolean;
   // 사용자가 요청을 보낸 뒤(UserPromptSubmit) 턴이 끝날 때(Stop)까지. 도구 호출 사이에 생각하는 동안에도 불을 켜 둔다.
   inTurn?: boolean;
+  // 본 세션의 진행을 마지막으로 확인한 시각. 이보다 오래된 중단 기록으로 현재 턴을 끝내지 않는다.
+  turnActivityAt?: number;
   // 마지막으로 턴이 끝난 시각(Stop, 중단, 세션 종료). 그보다 앞서 시작한 모델 호출 기록으로 턴을 다시 켜지 않는다.
   turnEndedAt?: number;
   doneCount: number;

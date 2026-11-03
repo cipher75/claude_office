@@ -94,16 +94,17 @@ describe("호출의 실행 여부 읽기", () => {
     expect(read([postRecord("t1")], first.state).outcomes).toEqual([{ toolUseId: "t1", executed: true, async: false, rejected: false }]);
   });
 
-  test("모델이 부른 호출 줄에서 도구와 입력을 기억했다가 그 호출의 판단에 붙인다", () => {
+  test("모델이 부른 호출의 도구·입력·시각을 기억했다가 그 호출의 판단에 붙인다", () => {
+    const timestamp = "2026-11-03T01:43:07.000Z";
     const call = JSON.stringify({
-      type: "assistant",
+      type: "assistant", timestamp,
       message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "git push" } }] },
     });
     const first = read([call, result("t1")]);
     const second = read([interrupted], first.state);
 
     expect(second.outcomes).toEqual([
-      { toolUseId: "t1", executed: false, async: false, rejected: false, toolName: "Bash", toolInput: { command: "git push" } },
+      { toolUseId: "t1", executed: false, async: false, rejected: false, toolName: "Bash", toolInput: { command: "git push" }, startedAt: Date.parse(timestamp) },
     ]);
     expect(second.state.calls).toEqual({});
   });
