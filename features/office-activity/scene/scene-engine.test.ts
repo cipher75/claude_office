@@ -378,6 +378,19 @@ describe("혼자 쓰는 보스와 비서", () => {
     expect(tossed).toBeLessThanOrEqual(32);
   });
 
+  test("연결만 되고 턴이 진행 중이 아니면 담담히 앉아 기다리고, 종이도 비서도 없다", () => {
+    const e = engine();
+    e.sync([], true, false);
+    run(e, 60);
+
+    expect(e.boss).toMatchObject({ seated: true, pose: "plain" });
+    expect(e.papers).toEqual([]);
+    expect(e.secretary).toBeNull();
+
+    e.sync([], true, true);
+    expect(e.boss?.pose).toBe("write");
+  });
+
   test("직원이 일하는 동안에는 쓰지 않고 생각하며, 종이도 던지지 않는다", () => {
     const e = engine();
     e.sync([work("a")], true);

@@ -16,6 +16,8 @@ import { KIND_STYLE, SPRITE_HEIGHT, SPRITE_WIDTH, drawSprite, lookFor } from "./
 type OfficeSceneProps = {
   characters: SceneCharacter[];
   lit: boolean;
+  // 턴이 진행 중인지. 직원이 없어도 진행 중이면 보스가 혼자 쓴다.
+  working: boolean;
   // 한 번이라도 일이 끝난 세션인지에 따라 불이 꺼진 이유를 다르게 안내한다.
   hadWork: boolean;
   connected: boolean;
@@ -23,7 +25,7 @@ type OfficeSceneProps = {
   alert?: string;
 };
 
-export function OfficeScene({ characters, lit, hadWork, connected, alert }: OfficeSceneProps) {
+export function OfficeScene({ characters, lit, working, hadWork, connected, alert }: OfficeSceneProps) {
   const [engine] = useState(() => new SceneEngine());
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const bgRef = useRef<HTMLCanvasElement>(null);
@@ -45,8 +47,8 @@ export function OfficeScene({ characters, lit, hadWork, connected, alert }: Offi
   }, []);
 
   useEffect(() => {
-    engine.sync(characters, lit);
-  }, [engine, characters, lit]);
+    engine.sync(characters, lit, working);
+  }, [engine, characters, lit, working]);
 
   useEffect(() => {
     let frame = 0;
@@ -66,13 +68,18 @@ export function OfficeScene({ characters, lit, hadWork, connected, alert }: Offi
   const boss = engine.boss;
   const secretary = engine.secretary;
   const empty = walkers.length === 0;
+  // 턴이 진행 중이면 보스가 혼자 쓰는 모습이 곧 안내이므로 따로 띄우지 않는다.
   const note = !connected
     ? "연결된 세션이 없어요"
-    : engine.lit
-      ? "첫 업무를 기다리는 중이에요"
-      : hadWork
-        ? "모두 퇴근했어요 · 불이 꺼졌어요"
-        : "";
+    : working
+      ? ""
+      : engine.lit
+        ? hadWork
+          ? ""
+          : "첫 업무를 기다리는 중이에요"
+        : hadWork
+          ? "모두 퇴근했어요 · 불이 꺼졌어요"
+          : "";
 
   return (
     <div

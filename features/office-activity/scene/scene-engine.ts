@@ -126,6 +126,7 @@ export class SceneEngine {
   private items: Internal[] = [];
   private departed = new Set<string>();
   private serverLit = false;
+  private serverWorking = false;
   private emptyTime = 0;
   private synced = false;
   private chief: BossState = {
@@ -178,8 +179,10 @@ export class SceneEngine {
     return this.chief.phase === "gone" ? null : this.chief;
   }
 
-  sync(characters: SceneCharacter[], serverLit: boolean): void {
+  // working은 턴이 진행 중인지다. 연결만 되어 불이 켜진 세션은 일하는 중이 아니다.
+  sync(characters: SceneCharacter[], serverLit: boolean, working = serverLit): void {
     this.serverLit = serverLit;
+    this.serverWorking = working;
     // 장면을 처음 맞출 때 이미 있던 캐릭터는 새로 들어온 것이 아니므로 제자리에 바로 세운다.
     const placed = !this.synced;
     this.synced = true;
@@ -265,8 +268,9 @@ export class SceneEngine {
     if (phases.has("to-wait") || phases.has("waiting")) return "confused";
     if (phases.has("reporting")) return "approve";
     if (phases.has("to-work") || phases.has("idle") || phases.has("to-report")) return "think";
-    // 직원이 없어도 서버가 불을 켜 두었으면 턴이 진행 중이다. Claude가 혼자 생각하거나 답을 쓰는 중이다.
-    if (this.serverLit) return "write";
+    // 직원이 없어도 턴이 진행 중이면 Claude가 혼자 생각하거나 답을 쓰는 중이다.
+    // 연결만 되고 아직 요청이 없으면 담담히 앉아 기다린다.
+    if (this.serverWorking) return "write";
     return "plain";
   }
 
