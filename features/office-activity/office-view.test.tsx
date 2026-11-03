@@ -123,6 +123,43 @@ describe("세션 탭", () => {
     send(state(["a", "b"]));
     selected(/docs/);
   });
+
+  test("보고 있던 탭이 퇴근하면 불 켜진 탭 중 가장 최근에 활성화한 탭으로 옮기고, 모두 퇴근하면 그대로 둔다", () => {
+    render(<OfficeView />);
+    const session = (id: string, name: string, lit: boolean) => ({
+      id, name, connected: true, lit, doneCount: 1, characters: [],
+    });
+    const state = (off: string[] = []) => ({
+      ...empty("i1"),
+      sessions: {
+        a: session("a", "blog", !off.includes("a")),
+        b: session("b", "shop", !off.includes("b")),
+        c: session("c", "docs", !off.includes("c")),
+      },
+      order: ["a", "b", "c"],
+    });
+    const selected = (name: RegExp) => expect(screen.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
+    send(state());
+    act(() => screen.getByRole("tab", { name: /blog/ }).click());
+    act(() => screen.getByRole("tab", { name: /shop/ }).click());
+
+    send(state(["b"]));
+    selected(/blog/);
+
+    // 퇴근한 탭은 건너뛰고 불 켜진 탭으로 간다.
+    send(state(["a", "b"]));
+    selected(/docs/);
+
+    // 모두 퇴근하면 보던 탭에 남는다.
+    send(state(["a", "b", "c"]));
+    selected(/docs/);
+
+    // 보고 있지 않던 탭이 퇴근하는 것만으로는 옮기지 않는다.
+    send(state(["a"]));
+    selected(/docs/);
+    send(state(["a", "b"]));
+    selected(/docs/);
+  });
 });
 
 describe("화면이 지금 상태를 보여주지 못할 때", () => {
