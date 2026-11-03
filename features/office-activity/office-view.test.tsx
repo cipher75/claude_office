@@ -95,6 +95,34 @@ describe("세션 탭", () => {
     send(both(true, true));
     expect(screen.getByRole("tab", { name: /shop/ })).toHaveAttribute("aria-selected", "true");
   });
+
+  test("보고 있던 탭이 사라지면 맨 끝 탭이 아니라 바로 전에 보던 탭으로 돌아간다", () => {
+    render(<OfficeView />);
+    const session = (id: string, name: string, connected = true) => ({
+      id, name, connected, lit: connected, doneCount: 1, characters: [],
+    });
+    const state = (closed: string[] = []) => ({
+      ...empty("i1"),
+      sessions: {
+        a: session("a", "blog", !closed.includes("a")),
+        b: session("b", "shop", !closed.includes("b")),
+        c: session("c", "docs", !closed.includes("c")),
+      },
+      order: ["a", "b", "c"],
+    });
+    const selected = (name: RegExp) => expect(screen.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
+    send(state());
+    selected(/docs/);
+
+    act(() => screen.getByRole("tab", { name: /blog/ }).click());
+    act(() => screen.getByRole("tab", { name: /shop/ }).click());
+    send(state(["b"]));
+    selected(/blog/);
+
+    // 그 탭마저 사라지면 그보다 전에 보던 탭으로 간다.
+    send(state(["a", "b"]));
+    selected(/docs/);
+  });
 });
 
 describe("화면이 지금 상태를 보여주지 못할 때", () => {
