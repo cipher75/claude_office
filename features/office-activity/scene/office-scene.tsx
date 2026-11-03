@@ -285,7 +285,7 @@ function SecretarySprite({ secretary }: { secretary: Secretary }) {
 
   return (
     <div
-      className={cn(styles.char, !moving && styles.bob, secretary.fading && styles.fading)}
+      className={cn(styles.char, styles.tall, !moving && styles.bob, secretary.fading && styles.fading)}
       style={{ ...position(secretary), zIndex: Math.round(secretary.y) }}
       aria-label="비서"
     >

@@ -67,6 +67,11 @@
   height: calc(36 * var(--p));
 }
 
+/* 비서는 직원보다 몸이 길어 같은 폭에 키만 크다(32 x 40 설계 단위). */
+.tall {
+  height: calc(35 * var(--p));
+}
+
 .char canvas {
   display: block;
   width: 100%;
