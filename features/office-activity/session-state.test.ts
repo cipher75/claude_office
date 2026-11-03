@@ -567,6 +567,18 @@ describe("/office close", () => {
     expect(session(state)).toMatchObject({ inTurn: false, lit: false, characters: [] });
   });
 
+  test("`!` 명령 뒤처럼 프롬프트 없이 Claude가 답을 쓰기 시작하면 턴이 진행 중이 된다", () => {
+    const stop = { hook_event_name: "Stop", session_id: S };
+    const request = (at: number) => ({ hook_event_name: "TranscriptModelRequest", session_id: S, requested_at: at });
+    // apply는 이벤트마다 1_000, 1_001, … 을 지금 시각으로 쓴다. Stop은 1_001에 끝난다.
+    const ended = apply(emptyOfficeState(), connect, stop);
+    expect(session(ended)).toMatchObject({ inTurn: false, lit: true });
+
+    expect(session(apply(ended, request(5_000)))).toMatchObject({ inTurn: true, lit: true });
+    // Stop보다 먼저 시작한 호출 기록을 늦게 읽은 것은 지난 턴의 것이다.
+    expect(session(apply(ended, request(900)))).toMatchObject({ inTurn: false });
+  });
+
   test("연결하지 않은 세션의 transcript에서 읽은 이벤트는 세션을 만들지 않는다", () => {
     const read = (name: string) => ({ hook_event_name: name, session_id: S, tool_use_id: "t1", tool_name: "Bash" });
     const state = apply(
@@ -575,7 +587,8 @@ describe("/office close", () => {
       read("TranscriptNotExecuted"),
       read("TranscriptUnreliable"),
       read("TranscriptTaskFinished"),
-      read("TranscriptInterrupted")
+      read("TranscriptInterrupted"),
+      read("TranscriptModelRequest")
     );
 
     expect(state.sessions[S]).toBeUndefined();
