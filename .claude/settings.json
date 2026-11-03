@@ -55,6 +55,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/events",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
