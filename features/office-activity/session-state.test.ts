@@ -980,6 +980,17 @@ describe("세션 마무리", () => {
     expect(session(state)).toMatchObject({ connected: false, lit: false, characters: [] });
   });
 
+  // 사용자 설정과 프로젝트 설정에 모두 SessionEnd hook이 있으면 같은 종료가 두 번 온다.
+  test("SessionEnd가 두 번 와도 한 번 온 것과 같고, 완료 건수도 두 번 세지 않는다", () => {
+    const end = { hook_event_name: "SessionEnd", session_id: S };
+    const work = { hook_event_name: "PreToolUse", session_id: S, tool_use_id: "t1", tool_name: "Read", tool_input: {} };
+    const once = apply(emptyOfficeState(), connect, work, end);
+    const twice = apply(emptyOfficeState(), connect, work, end, end);
+
+    expect(session(twice)).toMatchObject({ connected: false, lit: false, characters: [], doneCount: 1 });
+    expect(twice.order).toEqual(once.order);
+  });
+
   test("세션이 여럿이면 서로 영향을 주지 않는다", () => {
     const state = apply(
       emptyOfficeState(),
