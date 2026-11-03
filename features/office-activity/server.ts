@@ -89,7 +89,7 @@ function followTranscripts(payload: Record<string, unknown>) {
         tool_use_id: outcome.toolUseId,
         tool_name: outcome.toolName,
         tool_input: outcome.toolInput,
-        tool_response: { isAsync: outcome.async },
+        tool_response: { isAsync: outcome.async, agentId: outcome.agentId },
         rejected: outcome.rejected,
       });
     }

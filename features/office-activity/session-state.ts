@@ -92,18 +92,25 @@ export function applyHookEvent(
     case "TranscriptExecuted":
       // 백그라운드로 시작한 sub-agent는 응답이 시작만 알린다. 끝났다는 hook 이벤트는 오지 않으므로
       // 캐릭터를 남겨 두고, 서버가 transcript에서 찾은 TranscriptTaskFinished에서 정리한다.
-      if (isAsyncLaunch(payload)) session = markBackground(session, text(payload.tool_use_id));
+      if (isAsyncLaunch(payload)) session = markBackground(session, payload);
       else session = finishCall(session, text(payload.tool_use_id), now);
       break;
-    case "TranscriptTaskFinished":
+    // 백그라운드 sub-agent가 끝나면 그 안의 허용 창도 닫혔다. 그 sub-agent의 남은 호출도 함께 정리한다.
+    case "TranscriptTaskFinished": {
+      const finished = session.characters.find((c) => c.id === text(payload.tool_use_id))?.launchedAgentId;
       session = finishCall(session, text(payload.tool_use_id), now);
+      if (finished) session = closeCalls(session, (c) => c.agentId === finished, now);
       break;
-    // 턴이 끝나면 본 세션의 허용 창은 남지 않으므로, 시작을 보지 못한 세션도 이제 상태를 안다.
-    // 사용자가 Esc로 중단한 턴은 Stop hook 없이 끝난다. 서버가 transcript의 중단 메시지로 알려 준다.
+    }
+    // 턴이 끝나면 본 세션과 포그라운드 sub-agent의 허용 창은 닫혔다. 아직 일하는 백그라운드
+    // sub-agent 안의 호출만 남긴다. Esc로 중단한 턴은 Stop hook 없이 끝나 서버가 transcript로 알려 준다.
     case "Stop":
-    case "TranscriptInterrupted":
-      session = { ...finishWorking(cancelWaiting(session, now)), priorUnknown: false, inTurn: false, turnEndedAt: now };
+    case "TranscriptInterrupted": {
+      const running = runningBackgroundAgents(session);
+      session = closeCalls(session, (c) => !c.agentId || !running.has(c.agentId), now);
+      session = { ...session, priorUnknown: false, inTurn: false, turnEndedAt: now };
       break;
+    }
     case "SessionEnd":
       session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, turnEndedAt: now };
       break;
@@ -223,6 +230,7 @@ function pruneEnded(session: Session, now: number): Session {
 function startCharacter(payload: Payload, now: number): Character {
   const toolName = text(payload.tool_name) ?? "tool";
   const input = payload.tool_input;
+  const agentId = text(payload.agent_id);
   return {
     id: text(payload.tool_use_id) ?? `${toolName}-${now}`,
     kind: kindOf(toolName),
@@ -231,6 +239,7 @@ function startCharacter(payload: Payload, now: number): Character {
     toolName,
     toolInput: input,
     since: now,
+    ...(agentId ? { agentId } : {}),
   };
 }
 
@@ -295,7 +304,9 @@ function markWaiting(session: Session, payload: Payload, now: number): Session {
   // PreToolUse를 보낸 직후 그 호출의 허용을 묻는다(실제 세션 33건 모두 가장 최근에 시작한 호출이었고,
   // 간격은 19–127ms). 그래서 가장 최근에 시작한 호출부터 짝짓는다. 입력이 같은 호출끼리 짝이
   // 틀려도 finishCall이 실제로 실행된 호출로 바로잡는다.
-  const open = session.characters.filter((c) => c.status === "working" && !c.background && c.toolName === toolName);
+  const open = session.characters.filter(
+    (c) => c.status === "working" && !c.background && c.agentId === agentId && c.toolName === toolName
+  );
   // 입력 표현이 달라 같은 입력을 못 찾아도, 허용 대기를 놓치는 것이 더 나쁘므로 가장 최근 호출로 짝짓는다.
   const target = [...open].reverse().find((c) => stable(c.toolInput) === key) ?? open[open.length - 1];
   if (target) return replace(session, target.id, { status: "waiting", waitingAt: now });
@@ -364,26 +375,26 @@ function adoptOrphan(session: Session, payload: Payload): Session {
   };
 }
 
-// transcript를 읽지 못했을 때를 위한 대비: 턴이 끝났다면 허용 창은 이미 닫혔고,
-// 그때까지 실행되지 않은 허용 대기 호출은 실행되지 않은 것이다. 거절의 증거는 없으므로 중단으로 본다.
-function cancelWaiting(session: Session, now: number): Session {
-  const waiting = session.characters.filter((c) => c.status === "waiting").length;
-  if (!waiting) return session;
-  return {
-    ...session,
-    characters: session.characters.map((c) => (c.status === "waiting" ? { ...c, status: "cancelled", endedAt: now } : c)),
-    doneCount: session.doneCount + waiting,
-  };
+function runningBackgroundAgents(session: Session): Set<string> {
+  return new Set(
+    session.characters.flatMap((c) => (c.background && c.status === "working" && c.launchedAgentId ? [c.launchedAgentId] : []))
+  );
 }
 
-// 일하던 호출만 끝난 것으로 정리하고, 퇴근 중인 캐릭터는 퇴근 장면을 위해 남긴다.
-function finishWorking(session: Session): Session {
-  const finishing = (c: Character) => c.status === "working" && !c.background;
-  const working = session.characters.filter(finishing).length;
+// 허용 창이 닫힌 호출을 정리한다. transcript를 읽지 못해도, 그때까지 실행되지 않은 허용 대기 호출은
+// 실행되지 않은 것이다. 거절의 증거는 없으므로 중단으로 본다. 일하던 호출은 끝난 것으로 내보내고,
+// 백그라운드 sub-agent 캐릭터와 퇴근 중인 캐릭터는 남긴다.
+function closeCalls(session: Session, closing: (c: Character) => boolean, now: number): Session {
+  const waiting = (c: Character) => c.status === "waiting" && closing(c);
+  const working = (c: Character) => c.status === "working" && !c.background && closing(c);
+  const count = session.characters.filter((c) => waiting(c) || working(c)).length;
+  if (!count) return session;
   return {
     ...session,
-    characters: session.characters.filter((c) => !finishing(c)),
-    doneCount: session.doneCount + working,
+    characters: session.characters
+      .filter((c) => !working(c))
+      .map((c) => (waiting(c) ? { ...c, status: "cancelled", endedAt: now } : c)),
+    doneCount: session.doneCount + count,
   };
 }
 
@@ -412,12 +423,13 @@ function finishCall(session: Session, id: string | undefined, now: number): Sess
   return { ...done, characters: session.characters.filter((c) => c.id !== target.id) };
 }
 
-// 입력이 같은 호출은 권한 규칙이 똑같이 적용되므로 둘 다 허용이 필요하다. 그런데 회의실에 있지 않던
+// 같은 agent의 입력이 같은 호출은 권한 규칙이 똑같이 적용되므로 둘 다 허용이 필요하다. 그런데 회의실에 있지 않던
 // 호출이 실행되었다면, 허용 요청을 받은 것은 이 호출이었다. 회의실에 잘못 보낸 같은 입력의 호출을 찾는다.
 function waitingTwin(session: Session, target: Character): Character | undefined {
   const key = stable(target.toolInput);
   return session.characters.find(
-    (c) => c.id !== target.id && c.status === "waiting" && c.toolName === target.toolName && stable(c.toolInput) === key
+    (c) => c.id !== target.id && c.status === "waiting" && c.agentId === target.agentId &&
+      c.toolName === target.toolName && stable(c.toolInput) === key
   );
 }
 
@@ -431,8 +443,12 @@ function finishAll(session: Session): Session {
   };
 }
 
-function markBackground(session: Session, id: string | undefined): Session {
-  return id ? replace(session, id, { background: true }) : session;
+function markBackground(session: Session, payload: Payload): Session {
+  const id = text(payload.tool_use_id);
+  if (!id) return session;
+  const response = payload.tool_response;
+  const launchedAgentId = isRecord(response) ? text(response.agentId) : undefined;
+  return replace(session, id, { background: true, ...(launchedAgentId ? { launchedAgentId } : {}) });
 }
 
 function replace(session: Session, id: string, patch: Partial<Character>): Session {

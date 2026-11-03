@@ -16,10 +16,12 @@ export type Character = {
   since: number;
   // 서버가 PreToolUse hook을 놓쳐 허용 요청만으로 만든 캐릭터. 진짜 tool_use_id를 아직 모른다.
   orphan?: boolean;
-  // sub-agent 안의 호출이 허용을 기다릴 때 그 sub-agent의 id. 그 sub-agent의 신호에만 이어 붙인다.
+  // 호출한 sub-agent의 id. 없으면 본 세션의 호출이다. 허용 요청을 짝지을 때 같은 소속끼리만 비교한다.
   agentId?: string;
   // 백그라운드로 시작한 sub-agent: 턴이 끝나도 계속 일하고, 끝났다는 알림이 올 때 나간다.
   background?: boolean;
+  // 백그라운드로 시작한 sub-agent의 id(시작 응답의 agentId). 그 sub-agent 안의 호출이 가진 agentId와 같다.
+  launchedAgentId?: string;
   waitingAt?: number;
   // approved, denied, cancelled가 된 시각. 퇴근 장면을 보여줄 시간이 지나면 목록에서 정리한다.
   endedAt?: number;

@@ -49,13 +49,13 @@ export function stopFollowing(sessionId: string): void {
   }
 }
 
-// 호출이 실제로 실행되었는지. async는 백그라운드로 시작만 알린 호출이다.
+// 호출이 실제로 실행되었는지. async는 백그라운드로 시작만 알린 호출이고, agentId는 그때 시작한 sub-agent의 id다.
 // rejected는 실행되지 않은 호출 중 사용자가 거절했다는 증거가 결과에 있는 경우다.
 // toolName과 toolInput은 그 호출의 도구와 입력이다. 서버가 PreToolUse hook을 놓쳐 id 없이 만든
 // 허용 대기 캐릭터를 이 호출과 이어 붙이는 데 쓴다.
 export type CallInfo = { toolName?: string; toolInput?: unknown };
-export type CallOutcome = CallInfo & { toolUseId: string; executed: boolean; async: boolean; rejected: boolean };
-export type PendingResult = CallInfo & { toolUseId: string; async: boolean; rejected: boolean };
+export type CallOutcome = PendingResult & { executed: boolean };
+export type PendingResult = CallInfo & { toolUseId: string; async: boolean; agentId?: string; rejected: boolean };
 // pending: 아직 판단하지 못한 결과, calls: 결과를 기다리는 호출의 도구와 입력
 export type ReaderState = { pending: PendingResult[]; calls: Record<string, CallInfo> };
 
@@ -123,11 +123,12 @@ function resultsOf(entry: Record<string, unknown>): (PendingResult & { unknown: 
   if (entry.type !== "user" || !isRecord(entry.message) || !Array.isArray(entry.message.content)) return [];
   const summary = entry.toolUseResult;
   const async = isRecord(summary) && summary.isAsync === true;
+  const agentId = async && typeof summary.agentId === "string" ? summary.agentId : undefined;
   return entry.message.content.filter(isRecord).flatMap((block) => {
     if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") return [];
     const rejected = summary === REJECTED_RESULT || isRejectionText(summary) || isRejectionText(textOf(block.content));
     const unknown = textOf(block.content).startsWith(UNKNOWN_OUTCOME);
-    return [{ toolUseId: block.tool_use_id, async, rejected, unknown }];
+    return [{ toolUseId: block.tool_use_id, async, ...(agentId ? { agentId } : {}), rejected, unknown }];
   });
 }
 
