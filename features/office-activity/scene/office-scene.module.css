@@ -82,9 +82,11 @@
   opacity: 0;
 }
 
+/* 들썩임은 translate 속성으로 준다. transform을 쓰면 왼쪽을 볼 때의 scaleX(-1)과 보간되어
+   중간 단계에서 scaleX(0)이 되어 캐릭터가 사라진다. */
 @keyframes bob {
   100% {
-    transform: translateY(calc(var(--p) * -1.2));
+    translate: 0 calc(var(--p) * -1.2);
   }
 }
 
@@ -224,14 +226,14 @@
 }
 
 @keyframes scribble {
-  100% { transform: translate(calc(var(--p) * 0.6), calc(var(--p) * 0.5)); }
+  100% { translate: calc(var(--p) * 0.6) calc(var(--p) * 0.5); }
 }
 
 @keyframes eureka {
-  0% { transform: translateY(0); }
-  30% { transform: translateY(calc(var(--p) * -4)); }
-  60% { transform: translateY(calc(var(--p) * -1)); }
-  100% { transform: translateY(0); }
+  0% { translate: 0 0; }
+  30% { translate: 0 calc(var(--p) * -4); }
+  60% { translate: 0 calc(var(--p) * -1); }
+  100% { translate: 0 0; }
 }
 
 .eureka {
