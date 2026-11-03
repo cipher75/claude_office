@@ -49,8 +49,8 @@ export const SECRETARY_SPOT: Point = { x: 216, y: 104 };
 export const SECRETARY_GATE: Point = { x: 230, y: 163 };
 // 비서가 내려놓은 커피잔이 놓이는 보스 책상 위 자리(잔의 바닥).
 export const COFFEE_ON_DESK: Point = { x: 203, y: 99 };
-// 보스가 다 쓴 종이를 던지는 손 위치.
-export const BOSS_HAND: Point = { x: 186, y: 92 };
+// 보스가 다 쓴 종이를 흩뿌리는 자리(머리 위로 든 두 손 사이).
+export const BOSS_HAND: Point = { x: 181, y: 74 };
 
 // 일하는 캐릭터가 머무는 지점들. 모두 보스 구역 바깥이다.
 // 책상 바로 아래 통로는 말풍선이 책상을 가리므로 지나가기만 하고 머물지 않는다.

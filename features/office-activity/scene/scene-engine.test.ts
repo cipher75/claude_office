@@ -354,14 +354,16 @@ describe("혼자 쓰는 보스와 비서", () => {
     return Infinity;
   }
 
-  test("직원 없이 턴이 진행 중이면 손을 움직이며 쓰고, 다 쓴 종이를 가끔 던진다", () => {
+  test("직원 없이 턴이 진행 중이면 연필을 놀리며 쓰고, 가끔 두 팔을 들고 종이를 한 움큼 흩뿌린다", () => {
     const e = engine();
     e.sync([], true);
     const frame = e.boss!.frame;
     let tossed = 0;
+    let cheered = false;
     const seen = new Set<number>();
     for (let i = 0; i < 20 * 20; i++) {
       e.step(0.05);
+      if (e.boss?.cheering) cheered = true;
       for (const p of e.papers) {
         if (seen.has(p.id)) continue;
         seen.add(p.id);
@@ -370,9 +372,10 @@ describe("혼자 쓰는 보스와 비서", () => {
     }
 
     expect(e.boss!.frame).toBeGreaterThan(frame);
-    // 20초 동안 2.4–5초 간격이면 4–8장이다.
-    expect(tossed).toBeGreaterThanOrEqual(4);
-    expect(tossed).toBeLessThanOrEqual(9);
+    expect(cheered).toBe(true);
+    // 20초 동안 4.5–7.5초 간격으로 2–4번, 한 번에 6–8장을 흩뿌린다.
+    expect(tossed).toBeGreaterThanOrEqual(12);
+    expect(tossed).toBeLessThanOrEqual(32);
   });
 
   test("직원이 일하는 동안에는 쓰지 않고 생각하며, 종이도 던지지 않는다", () => {

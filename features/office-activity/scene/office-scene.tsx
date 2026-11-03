@@ -161,18 +161,24 @@ function WalkerSprite({ walker }: { walker: Walker }) {
 
 function BossSprite({ boss }: { boss: Boss }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const { pose, seated, moving } = boss;
-  // 걷거나 쓰는 동안에만 동작이 바뀐다.
-  const frame = moving || pose === "write" ? boss.frame % 4 : 0;
+  const { pose, seated, moving, cheering } = boss;
+  // 걷거나 쓰는 동안에만 동작이 바뀐다. 걸음은 네 칸, 연필은 여섯 칸을 돈다.
+  const frame = moving ? boss.frame % 4 : pose === "write" ? boss.frame % 6 : 0;
+  const writing = seated && pose === "write";
 
   useEffect(() => {
     const context = ref.current?.getContext("2d");
-    if (context) drawBoss(context, { pose, seated, frame, moving });
-  }, [pose, seated, frame, moving]);
+    if (context) drawBoss(context, { pose, seated, frame, moving, cheering });
+  }, [pose, seated, frame, moving, cheering]);
 
   return (
     <div
-      className={cn(styles.char, styles.boss, boss.fading && styles.fading)}
+      className={cn(
+        styles.char,
+        styles.boss,
+        writing && (cheering ? styles.cheer : styles.writing),
+        boss.fading && styles.fading
+      )}
       style={{ ...position(boss), zIndex: Math.round(boss.y) }}
       aria-label="보스"
     >
@@ -191,30 +197,34 @@ function BossSprite({ boss }: { boss: Boss }) {
 function BossBubble({ boss, thanking }: { boss: Boss; thanking: boolean }) {
   if (!boss.seated || boss.pose === "plain") return null;
   const thanks = thanking && boss.pose === "write";
-  const thinking = (boss.pose === "think" || boss.pose === "write") && !thanks;
+  const eureka = boss.pose === "write" && boss.cheering && !thanks;
+  const thinking = (boss.pose === "think" || boss.pose === "write") && !thanks && !eureka;
   return (
     <div
       className={cn(
         styles.bubble,
         boss.pose === "confused" && styles.ask,
         (boss.pose === "approve" || thanks) && styles.glad,
+        eureka && styles.eureka,
         thinking && styles.think
       )}
       style={position(boss)}
     >
-      {boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : thanks ? "고마워요" : "…"}
+      {boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : thanks ? "고마워요" : eureka ? "유레카!" : "…"}
     </div>
   );
 }
 
-// 보스가 던진 종이. 날아가는 모습은 CSS 애니메이션이 그리고, 엔진이 수명이 다하면 지운다.
+// 보스가 흩뿌린 종이. 솟구쳤다 떨어지는 모습은 CSS 애니메이션이 그리고, 엔진이 수명이 다하면 지운다.
 function PaperSprite({ paper }: { paper: Paper }) {
-  return (
-    <div
-      className={cn(styles.paper, paper.toss === "back" ? styles.tossBack : styles.tossUp)}
-      style={{ ...position(paper), zIndex: BOSS_DESK.bottom + 2 }}
-    />
-  );
+  const flight = {
+    "--dx": paper.dx.toFixed(1),
+    "--dy": paper.dy.toFixed(1),
+    "--fall": paper.fall.toFixed(1),
+    "--spin": `${paper.spin.toFixed(0)}deg`,
+    animationDelay: `${paper.delay.toFixed(2)}s`,
+  } as React.CSSProperties;
+  return <div className={styles.paper} style={{ ...position(paper), ...flight, zIndex: BOSS_DESK.bottom + 2 }} />;
 }
 
 function SecretarySprite({ secretary }: { secretary: Secretary }) {
