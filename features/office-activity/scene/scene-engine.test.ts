@@ -297,12 +297,12 @@ describe("일을 마친 직원의 결재", () => {
 });
 
 describe("보스", () => {
-  test("첫 업무 전에는 보스가 없고, 불이 켜지면 자기 책상에 앉아 생각한다", () => {
+  test("첫 업무 전에는 보스가 없고, 불이 켜지면 자기 책상에 앉아 혼자 무언가를 쓴다", () => {
     const e = engine();
     expect(e.boss).toBeNull();
 
     e.sync([], true);
-    expect(e.boss).toMatchObject({ x: BOSS_SEAT.x, y: BOSS_SEAT.y, seated: true, pose: "think" });
+    expect(e.boss).toMatchObject({ x: BOSS_SEAT.x, y: BOSS_SEAT.y, seated: true, pose: "write" });
   });
 
   test("직원이 일하는 동안 생각하고, 허용 대기가 생기면 회의실을 보며 의아해한다", () => {
@@ -341,6 +341,127 @@ describe("보스", () => {
 
     run(e, 8);
     expect(e.boss).toMatchObject({ x: BOSS_SEAT.x, y: BOSS_SEAT.y, seated: true, pose: "think" });
+  });
+});
+
+describe("혼자 쓰는 보스와 비서", () => {
+  // 비서가 나타날 때까지 진행하고 걸린 시간(초)을 돌려준다. 오지 않으면 Infinity.
+  function untilSecretary(e: SceneEngine, limit: number): number {
+    for (let i = 0; i < limit * 20; i++) {
+      if (e.secretary) return i / 20;
+      e.step(0.05);
+    }
+    return Infinity;
+  }
+
+  test("직원 없이 턴이 진행 중이면 손을 움직이며 쓰고, 다 쓴 종이를 가끔 던진다", () => {
+    const e = engine();
+    e.sync([], true);
+    const frame = e.boss!.frame;
+    let tossed = 0;
+    const seen = new Set<number>();
+    for (let i = 0; i < 20 * 20; i++) {
+      e.step(0.05);
+      for (const p of e.papers) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        tossed++;
+      }
+    }
+
+    expect(e.boss!.frame).toBeGreaterThan(frame);
+    // 20초 동안 2.4–5초 간격이면 4–8장이다.
+    expect(tossed).toBeGreaterThanOrEqual(4);
+    expect(tossed).toBeLessThanOrEqual(9);
+  });
+
+  test("직원이 일하는 동안에는 쓰지 않고 생각하며, 종이도 던지지 않는다", () => {
+    const e = engine();
+    e.sync([work("a")], true);
+    run(e, 10);
+
+    expect(e.boss?.pose).toBe("think");
+    expect(e.papers).toEqual([]);
+  });
+
+  test("짧게 혼자 쓸 때는 비서가 오지 않고, 오래 쓰면 커피를 가져와 책상에 두고 돌아간다", () => {
+    const e = engine();
+    e.sync([], true);
+    // 쉬지 않고 25–40초를 써야 온다.
+    expect(untilSecretary(e, 60)).toBeGreaterThanOrEqual(25);
+    expect(e.secretary).toMatchObject({ carrying: true });
+    let served = false;
+    for (let i = 0; i < 40 * 20 && e.secretary; i++) {
+      e.step(0.05);
+      if (e.secretary?.serving) served = true;
+    }
+
+    expect(served).toBe(true);
+    expect(e.secretary).toBeNull();
+    expect(e.coffee).toBe(true);
+  });
+
+  test("비서는 한 번 온 뒤 3분 안에는 다시 오지 않는다", () => {
+    const e = engine();
+    e.sync([], true);
+    let visits = 0;
+    let present = false;
+    for (let i = 0; i < 170 * 20; i++) {
+      e.step(0.05);
+      if (e.secretary && !present) visits++;
+      present = e.secretary !== null;
+    }
+
+    expect(visits).toBe(1);
+  });
+
+  test("직원이 드나들어 혼자 쓰는 시간이 끊기면 비서는 오지 않는다", () => {
+    const e = engine();
+    e.sync([], true);
+    for (let round = 0; round < 6; round++) {
+      run(e, 15);
+      e.sync([work(`w${round}`)], true);
+      e.step(0.05);
+      e.sync([], true);
+    }
+
+    expect(e.secretary).toBeNull();
+  });
+
+  test("비서가 커피를 건네는 중에도 직원의 결재와 보스의 수고했어요는 그대로 일어난다", () => {
+    const e = engine();
+    e.sync([], true);
+    untilSecretary(e, 60);
+    while (e.secretary && !e.secretary.serving) e.step(0.05);
+    expect(e.secretary?.serving).toBe(true);
+
+    e.sync([approved("a")], true);
+    let approvedPose = false;
+    for (let i = 0; i < 20 * 20; i++) {
+      e.step(0.05);
+      if (e.boss?.pose === "approve") approvedPose = true;
+    }
+
+    expect(approvedPose).toBe(true);
+  });
+
+  test("턴이 끝나면 비서도 돌아가고 커피를 치우며, 비서까지 나간 뒤에 불이 꺼진다", () => {
+    const e = engine();
+    e.sync([], true);
+    untilSecretary(e, 60);
+    run(e, 2);
+    expect(e.secretary).not.toBeNull();
+
+    e.sync([], false);
+    run(e, 1);
+    expect(e.coffee).toBe(false);
+    for (let i = 0; i < 30 * 20 && e.secretary; i++) {
+      e.step(0.05);
+      if (e.secretary) expect(e.lit).toBe(true);
+    }
+    expect(e.secretary).toBeNull();
+    run(e, 15);
+    expect(e.lit).toBe(false);
   });
 });
 
