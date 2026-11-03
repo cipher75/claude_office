@@ -137,6 +137,7 @@ export function OfficeBoard({
         working={session?.inTurn === true}
         hadWork={(session?.doneCount ?? 0) > 0}
         connected={Boolean(session?.connected)}
+        plan={session?.plan}
         alert={
           link === "lost"
             ? "연결이 끊겨 지금 상태를 알 수 없어요"

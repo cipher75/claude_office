@@ -1,7 +1,7 @@
 import type { Character, OfficeState, Session } from "../types";
 
 // 호스팅으로 보내기 전에 상태를 줄인다. PC를 떠나는 것은 호출의 상태와 종류, 도구 이름, 파일 이름,
-// skill과 sub-agent 이름뿐이고, 명령 내용, URL, 검색어, 프롬프트, 전체 경로는 남기지 않는다.
+// skill과 sub-agent 이름뿐이고, 명령 내용, URL, 검색어, 프롬프트, task 목록, 전체 경로는 남기지 않는다.
 // ([local-first-deployment] 결정과 hosted-personal-view 스펙의 "보내는 내용")
 
 const LABEL_MAX = 40;
@@ -15,6 +15,9 @@ export function redactState(state: OfficeState): OfficeState {
     if (!session.connected && session.characters.length === 0) continue;
     const redacted: Session = { ...session, characters: session.characters.map(redactCharacter) };
     delete redacted.cwd;
+    // task 문구는 Claude가 요청을 풀어 쓴 글이라 프롬프트처럼 할 일과 파일 이름이 그대로 담긴다. 호스팅 게시판은 원래 차트를 그린다.
+    delete redacted.plan;
+    delete redacted.planCallIds;
     sessions[id] = redacted;
   }
   // 탭에서 내린 세션은 로컬에서 되살리는 데만 쓴다.

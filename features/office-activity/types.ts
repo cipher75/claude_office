@@ -50,6 +50,17 @@ export type Session = {
   // transcript를 믿을 수 없게 된 세션. 실행되지 않았다는 판단을 쓰지 않는다.
   transcriptUnreliable?: boolean;
   characters: Character[];
+  // 세션의 task 목록. 목록을 고치는 도구 호출(update_plan, TodoWrite)이 실행될 때마다 바뀌고, 없으면 게시판에 원래 차트를 그린다.
+  plan?: PlanItem[];
+  // 목록에 이미 반영한 호출의 tool_use_id. Post hook과 transcript 기록이 둘 다 와도 한 번만 반영한다.
+  planCallIds?: string[];
+};
+
+export type PlanItemStatus = "pending" | "in_progress" | "completed";
+
+export type PlanItem = {
+  content: string;
+  status: PlanItemStatus;
 };
 
 export type OfficeState = {

@@ -4,6 +4,7 @@ import type {
   OfficeState,
   Session,
 } from "./types";
+import { applyPlanCall, isPlanTool } from "./task-plan";
 
 type Payload = Record<string, unknown>;
 
@@ -14,6 +15,8 @@ const DUPLICATE_REQUEST_MS = 1_000;
 const LABEL_MAX = 40;
 // 탭에서 내린 세션을 되살리려고 기억해 두는 최대 개수
 const RETIRED_MAX = 20;
+// task 목록에 반영한 호출을 기억해 두는 개수. 같은 호출의 두 신호는 몇 초 안에 오므로 몇 개면 충분하다.
+const PLAN_CALLS_MAX = 20;
 
 export function emptyOfficeState(): OfficeState {
   return { sessions: {}, order: [] };
@@ -92,6 +95,7 @@ export function applyHookEvent(
     case "PostToolUse":
     case "PostToolUseFailure":
     case "TranscriptExecuted":
+      if (eventName !== "PostToolUseFailure") session = withPlanCall(session, payload);
       // 백그라운드로 시작한 sub-agent는 응답이 시작만 알린다. 끝났다는 hook 이벤트는 오지 않으므로
       // 캐릭터를 남겨 두고, 서버가 transcript에서 찾은 TranscriptTaskFinished에서 정리한다.
       if (isAsyncLaunch(payload)) session = markBackground(session, payload);
@@ -478,6 +482,19 @@ function finishAll(session: Session): Session {
     characters: session.characters.filter(isEnded),
     doneCount: session.doneCount + open.length,
   };
+}
+
+// task 목록을 고치는 호출이 실행되었으면 목록에 반영한다. 같은 호출은 Post hook과 transcript 기록으로 두 번 올 수 있어,
+// advance처럼 지금 목록에 기대는 입력이 두 번 적용되지 않게 반영한 id를 기억한다.
+function withPlanCall(session: Session, payload: Payload): Session {
+  const toolName = text(payload.tool_name);
+  const id = text(payload.tool_use_id);
+  if (!toolName || !isPlanTool(toolName) || !id || session.planCallIds?.includes(id)) return session;
+  const plan = applyPlanCall(session.plan, toolName, payload.tool_input);
+  const planCallIds = [...(session.planCallIds ?? []), id].slice(-PLAN_CALLS_MAX);
+  const next: Session = { ...session, planCallIds, plan };
+  if (!plan) delete next.plan;
+  return next;
 }
 
 function markBackground(session: Session, payload: Payload): Session {
