@@ -200,25 +200,63 @@ function BossSprite({ boss }: { boss: Boss }) {
   );
 }
 
-// 앉은 보스의 말풍선: 생각하거나 쓰는 중 …, 결재 중 수고했어요!, 허용 대기를 보며 ?.
-// 혼자 쓰다가 비서가 커피를 건네면 고마워요.
+// 앉은 보스의 말풍선: 결재 중 수고했어요!, 허용 대기를 보며 ?, 혼자 쓰다가 유레카!, 커피를 받으면 고마워요.
+// 생각하거나 쓰는 중에는 말풍선 대신 머리 위 전구가 깜빡인다.
 function BossBubble({ boss, thanking }: { boss: Boss; thanking: boolean }) {
   if (!boss.seated || boss.pose === "plain") return null;
   const thanks = thanking && boss.pose === "write";
   const eureka = boss.pose === "write" && boss.cheering && !thanks;
   const thinking = (boss.pose === "think" || boss.pose === "write") && !thanks && !eureka;
+  if (thinking) return <ThinkingBulb boss={boss} />;
   return (
     <div
       className={cn(
         styles.bubble,
         boss.pose === "confused" && styles.ask,
         (boss.pose === "approve" || thanks) && styles.glad,
-        eureka && styles.eureka,
-        thinking && styles.think
+        eureka && styles.eureka
       )}
       style={position(boss)}
     >
-      {boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : thanks ? "고마워요" : eureka ? "유레카!" : "…"}
+      {boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : thanks ? "고마워요" : "유레카!"}
+    </div>
+  );
+}
+
+// 생각 중인 보스의 머리 위에서 꺼졌다 켜졌다 하는 도트 전구. 켜지면 유리가 노랗게 빛나고 빛줄기가 뻗는다.
+const BULB_GLASS: [number, number, number][] = [
+  [3, 0, 4], [2, 1, 6], [1, 2, 8], [1, 3, 8], [1, 4, 8], [2, 5, 6], [3, 6, 4],
+];
+const BULB_RAYS: [number, number, number, number][] = [
+  [4, -3.5, 2, 2.5], [-3.5, 2.5, 2.5, 2], [11, 2.5, 2.5, 2], [-1.5, -2, 2, 2], [9.5, -2, 2, 2],
+];
+
+function ThinkingBulb({ boss }: { boss: Boss }) {
+  return (
+    <div className={styles.bulb} style={position(boss)} role="img" aria-label="생각 중">
+      <svg viewBox="-4 -4 18 17" shapeRendering="crispEdges" aria-hidden>
+        <g className={styles.bulbRays}>
+          {BULB_RAYS.map(([x, y, w, h]) => (
+            <rect key={`${x},${y}`} x={x} y={y} width={w} height={h} />
+          ))}
+        </g>
+        {/* 테두리를 한 칸 크게 깔고 그 위에 유리를 얹어 도트 외곽선을 만든다. */}
+        {BULB_GLASS.map(([x, y, w]) => (
+          <rect key={`o${y}`} x={x - 1} y={y - 1} width={w + 2} height={3} fill="#2b1d14" />
+        ))}
+        <g className={styles.bulbGlass}>
+          {BULB_GLASS.map(([x, y, w]) => (
+            <rect key={`g${y}`} x={x} y={y} width={w} height={1} />
+          ))}
+        </g>
+        <rect className={styles.bulbShine} x={3} y={1} width={1} height={2} />
+        {/* 나사 받침과 꼭지 */}
+        <rect x={2} y={7} width={6} height={4} fill="#2b1d14" />
+        <rect x={3} y={7} width={4} height={1} fill="#c9ccd6" />
+        <rect x={3} y={8} width={4} height={1} fill="#8f94a3" />
+        <rect x={3} y={9} width={4} height={1} fill="#c9ccd6" />
+        <rect x={4} y={10} width={2} height={2} fill="#2b1d14" />
+      </svg>
     </div>
   );
 }
