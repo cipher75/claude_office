@@ -187,37 +187,56 @@
   background: #fde9d4;
 }
 
-/* 보스가 던진 종이: 손에서 뒤(어깨 너머)나 위로 빙글 돌며 날아가다 사라진다. 길이는 PAPER_LIFE와 같다. */
+/* 보스가 "유레카!" 하며 흩뿌린 종이: 머리 위로 솟구쳤다가 빙글 돌며 떨어지고 사라진다. */
 .paper {
   position: absolute;
   left: calc(var(--x) * var(--p));
   top: calc(var(--y) * var(--p));
-  width: calc(5 * var(--p));
-  height: calc(6 * var(--p));
+  width: calc(6 * var(--p));
+  height: calc(7.5 * var(--p));
   border: 1px solid #8a8070;
   background: repeating-linear-gradient(#fffdf3 0 2px, #c9cbe0 2px 3px);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  opacity: 0;
   transform: translate(-50%, -50%);
-  animation: 1.3s ease-out forwards;
+  animation: scatter 1.7s cubic-bezier(0.2, 0.7, 0.4, 1) forwards;
 }
 
-.tossBack {
-  animation-name: toss-back;
+@keyframes scatter {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.4); opacity: 1; }
+  40% {
+    transform: translate(calc(-50% + var(--dx) * var(--p)), calc(-50% + var(--dy) * var(--p))) rotate(calc(var(--spin) * 0.45)) scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--dx) * 1.35 * var(--p)), calc(-50% + (var(--dy) + var(--fall)) * var(--p))) rotate(var(--spin)) scale(0.9);
+    opacity: 0;
+  }
 }
 
-.tossUp {
-  animation-name: toss-up;
+/* 쓰는 동안 보스가 몸을 들썩이고, 유레카 순간에는 펄쩍 솟는다. */
+.writing canvas {
+  animation: scribble 0.26s steps(2, end) infinite;
 }
 
-@keyframes toss-back {
-  0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.6); opacity: 1; }
-  45% { transform: translate(calc(-50% + 9 * var(--p)), calc(-50% - 22 * var(--p))) rotate(200deg) scale(1); opacity: 1; }
-  100% { transform: translate(calc(-50% + 20 * var(--p)), calc(-50% - 4 * var(--p))) rotate(420deg) scale(0.8); opacity: 0; }
+.cheer canvas {
+  animation: eureka 0.9s ease-out;
 }
 
-@keyframes toss-up {
-  0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.6); opacity: 1; }
-  50% { transform: translate(calc(-50% - 4 * var(--p)), calc(-50% - 30 * var(--p))) rotate(-180deg) scale(1); opacity: 1; }
-  100% { transform: translate(calc(-50% - 8 * var(--p)), calc(-50% - 18 * var(--p))) rotate(-360deg) scale(0.9); opacity: 0; }
+@keyframes scribble {
+  100% { transform: translate(calc(var(--p) * 0.6), calc(var(--p) * 0.5)); }
+}
+
+@keyframes eureka {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(calc(var(--p) * -4)); }
+  60% { transform: translateY(calc(var(--p) * -1)); }
+  100% { transform: translateY(0); }
+}
+
+.eureka {
+  background: #fff3b0;
+  font-weight: 800;
 }
 
 /* 비서가 책상에 내려놓은 커피잔과 피어오르는 김 */
@@ -253,6 +272,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .writing canvas,
+  .cheer canvas,
   .paper,
   .coffee::after {
     animation: none;

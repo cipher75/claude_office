@@ -23,16 +23,16 @@ const IRIS = ["#2a2040", "#3b2a4a", "#6a4a3a", "#9a6a4a", "#c08a5a"];
 // 앉은 보스가 책상 상판 뒤로 숨는 높이(설계 단위).
 const DESK_CUT = 27.2;
 
-export type BossSpriteOptions = { pose: BossPose; seated: boolean; frame: number; moving: boolean };
+export type BossSpriteOptions = { pose: BossPose; seated: boolean; frame: number; moving: boolean; cheering?: boolean };
 
-type Arm = "desk" | "chin" | "stamp" | "write" | "side";
-type Face = "think" | "focus" | "happy" | "confused" | "plain";
+type Arm = "desk" | "chin" | "stamp" | "write" | "cheer" | "side";
+type Face = "think" | "focus" | "eureka" | "happy" | "confused" | "plain";
 
 function look(o: BossSpriteOptions): { face: Face; arm: Arm; turn: number } {
   if (!o.seated) return { face: "plain", arm: "side", turn: 0 };
   if (o.pose === "think") return { face: "think", arm: "chin", turn: 0 };
-  // 혼자 쓰는 중: 종이를 내려다보며 펜을 쥔 손을 움직인다.
-  if (o.pose === "write") return { face: "focus", arm: "write", turn: 0 };
+  // 혼자 쓰는 중: 종이를 내려다보며 연필을 크게 놀린다. 한 묶음을 다 쓰면 두 팔을 번쩍 든다.
+  if (o.pose === "write") return o.cheering ? { face: "eureka", arm: "cheer", turn: 0 } : { face: "focus", arm: "write", turn: 0 };
   if (o.pose === "approve") return { face: "happy", arm: "stamp", turn: 0 };
   // 허용 대기: 오른쪽 회의실 쪽으로 고개를 돌린다.
   if (o.pose === "confused") return { face: "confused", arm: "desk", turn: 2.2 };
@@ -45,14 +45,16 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
     r: string[],
     test: (u: number, v: number) => boolean,
     light: [number, number, number, number],
-    opt: number | { inner?: boolean } = 0
+    opt: number | { inner?: boolean; bias?: number } = 0
   ) => addPart(r, test, light, typeof opt === "number" ? { bias: opt } : opt);
 
   const { face, arm, turn: t } = look(o);
   const cut = o.seated ? DESK_CUT : 31;
   const f = o.moving ? o.frame % 4 : 0;
-  // 쓰는 손은 종이 위를 오른쪽으로 세 칸 옮겨 가다가 줄을 바꾼다.
-  const pen = arm === "write" ? [0, 1.1, 2.2, 0.6][o.frame % 4] : 0;
+  // 쓰는 손은 종이 위를 오른쪽으로 크게 옮겨 가며 위아래로 끄적이다가 줄을 바꾼다.
+  const step = o.frame % 6;
+  const pen = arm === "write" ? [0, 1.8, 3.6, 5.4, 7.2, 2.4][step] : 0;
+  const scrawl = arm === "write" ? [0, -1.2, 0.4, -1.2, 0.4, 0.6][step] : 0;
   const leftUp = f === 1 ? 1 : 0;
   const rightUp = f === 3 ? 1 : 0;
   const swing = f === 1 ? 0.9 : f === 3 ? -0.9 : 0;
@@ -64,7 +66,13 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
     add(SHOE, ellipse(19.4, 33.6 - rightUp, 2.8, 1.5), [19, 32.6, 3, 2]);
   }
   add(SUIT, (u, v) => v >= 20.5 && v <= cut && Math.abs(u - 16) <= Math.min(7.4 + (v - 20.5) * 0.6, 10), [13, 21, 9, 7]);
-  if (arm === "side") {
+  if (arm === "cheer") {
+    // 두 팔을 머리 옆으로 번쩍 든다.
+    add(SUIT, (u, v) => v >= 9 && v <= 24 && Math.abs(u - (3.4 - (24 - v) * 0.06)) <= 1.9, [2.6, 12, 2, 8]);
+    add(SUIT, (u, v) => v >= 9 && v <= 24 && Math.abs(u - (28.6 + (24 - v) * 0.06)) <= 1.9, [29.4, 12, 2, 8]);
+    add(SKIN, ellipse(2.4, 7.4, 2, 2), [2, 7, 2, 2]);
+    add(SKIN, ellipse(29.6, 7.4, 2, 2), [29.2, 7, 2, 2]);
+  } else if (arm === "side") {
     add(SUIT, ellipse(6.4, 26 + swing, 2.4, 3.6), [6, 24.5, 3, 4]);
     add(SUIT, ellipse(25.6, 26 - swing, 2.4, 3.6), [25, 24.5, 3, 4]);
     add(SKIN, ellipse(6.4, 29.4 + swing, 1.8, 1.6), [6, 29, 2, 2]);
@@ -77,9 +85,7 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
       add(SKIN, ellipse(17.6, 28.3, 1.8, 1.4), [17, 28, 2, 2]);
     } else if (arm === "write") {
       // 책상 위 종이와 그 위를 오가는 오른손
-      add(PAPER, (u, v) => u >= 17.6 && u <= 25.6 && v >= 25.2 && v <= cut, [19, 25.3, 6, 2], { inner: false });
-      add(SUIT, ellipse(25 + pen * 0.4, 26.6, 3.4, 1.8), [24, 26, 4, 2]);
-      add(SKIN, ellipse(20.8 + pen, 26.4, 1.7, 1.4), [20.5, 26, 2, 2]);
+      add(SUIT, ellipse(25.4 + pen * 0.4, 25.6 + scrawl * 0.5, 3.8, 2), [24, 25, 4, 2]);
     } else add(SUIT, ellipse(23.4, 24.2, 2.3, 3.6), [22.5, 23, 3, 4]);
   }
   if (t) add(SKIN, ellipse(5.8, 15.6, 1.6, 2.3), [5.4, 15, 2, 2.5]);
@@ -94,6 +100,11 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
     if (v < 8.6 + 0.6 * Math.sin(u * 0.7)) return true;
     return t ? (u < 7.8 && v < 16.5) || (u > 26.6 && v < 12.5) : (u < 6.2 || u > 25.8) && v < 15;
   }, [11, 6, 12, 8]);
+  // 쓰는 종이와 손은 머리보다 앞에 그려야 턱에 가리지 않는다.
+  if (arm === "write") {
+    add(PAPER, (u, v) => u >= 9.6 && u <= 29.4 && v >= 22.8 - (u - 9.6) * 0.03 && v <= cut, [19.5, 25, 14, 8], { inner: false, bias: 0.35 });
+    add(SKIN, ellipse(16.4 + pen, 25.4 + scrawl * 0.6, 2.3, 1.9), [16, 25, 2, 2]);
+  }
   // 턱을 괸 손은 얼굴 오른쪽 턱선에 걸친다.
   if (arm === "chin") add(SKIN, ellipse(23.2, 23, 2, 1.7), [22.6, 22.5, 2, 2], -0.15);
   if (arm === "stamp") {
@@ -104,7 +115,9 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
 
   paint(c, ({ blk, dot }) => {
     // 셔츠 깃, 빨간 넥타이, 금색 행커치프
-    for (let y = Math.round(20.6 * K); y < cut * K; y++) {
+    // 쓰는 동안에는 넥타이가 종이 밑으로 들어간다.
+    const shirtEnd = arm === "write" ? 22.8 : cut;
+    for (let y = Math.round(20.6 * K); y < shirtEnd * K; y++) {
       for (let x = 0; x < BOSS_WIDTH; x++) {
         const u = (x + 0.5) / K;
         const v = (y + 0.5) / K;
@@ -114,14 +127,33 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
     }
     blk(20.2, 23.4, 1.8, 0.9, "#ffd23f");
     if (arm === "write") {
-      // 종이에 써 내려간 줄과 손에 쥔 펜
-      for (let line = 0; line < 2; line++) blk(18.2, 25.8 + line * 0.9, 1 + (o.frame % 4) * 1.2 + line * 0.8, 0.5, "#7a7f9a");
-      blk(21.4 + pen, 23.6, 0.6, 2.4, "#3a3550");
-      blk(21.4 + pen, 23.2, 0.6, 0.5, GOLD[3]);
+      // 종이에 써 내려간 줄. 연필이 지나간 만큼 마지막 줄이 길어진다.
+      for (const line of [23.8, 24.9]) blk(10.8, line, 17.6, 0.5, "#8a90ad");
+      blk(10.8, 26, 2.4 + pen * 2, 0.6, "#3a3550");
     }
     drawFace(blk, dot, face, t);
+    if (arm === "write") drawPencil(dot, 14.8 + pen, 26.1 + scrawl * 0.6);
     for (let x = 12; x < 22; x++) dot(x + 8, 6 + Math.round(Math.abs(x - 17) * 0.4), HAIR[4]);
   }, { shadow: o.seated ? undefined : [16, 34.6, 9.5, 1.6] });
+}
+
+// 손에 쥔 큰 노란 연필. 심 끝(tipU, tipV)에서 오른쪽 위로 비스듬히 뻗는다.
+function drawPencil(dot: Dot, tipU: number, tipV: number) {
+  const len = 10;
+  for (let i = 0; i <= len * K * 2; i++) {
+    const t = i / (K * 2);
+    const x = Math.round((tipU + t * 0.72) * K);
+    const y = Math.round((tipV - t * 0.66) * K);
+    const shades =
+      t < 0.8 ? ["#2a2040", "#2a2040", "#2a2040"]
+      : t < 2 ? ["#f7d9a8", "#f2c98a", "#d9a866"]
+      : t < len - 2 ? ["#ffe066", "#ffcc33", "#e0a520"]
+      : t < len - 1.2 ? ["#e4e7ee", "#c0c4cc", "#9aa0aa"]
+      : ["#ffb3c1", "#ff8fa3", "#e86a82"];
+    // 심 끝은 가늘게, 몸통은 세 도트 굵기로 그린다.
+    const width = t < 0.8 ? 1 : 3;
+    for (let w = 0; w < width; w++) dot(x + w - 1, y, shades[w]);
+  }
 }
 
 function drawFace(blk: Blk, dot: Dot, face: Face, t: number) {
@@ -136,7 +168,7 @@ function drawFace(blk: Blk, dot: Dot, face: Face, t: number) {
     blk(eyes[1] - 0.4, 11.2, 3.4, 1, BROW);
     blk(eyes[1] - 0.8, 12, 1, 0.6, BROW);
   } else {
-    const y = face === "think" ? 11.9 : 12.5;
+    const y = face === "think" ? 11.9 : face === "eureka" ? 11 : 12.5;
     blk(eyes[0] - 0.6, y, 3.4, 1, BROW);
     blk(eyes[1] - 0.6, y, 3.4, 1, BROW);
   }
@@ -144,7 +176,7 @@ function drawFace(blk: Blk, dot: Dot, face: Face, t: number) {
   const eyeAt = (e: number) => [Math.round((e - 0.6) * K), Math.round(14.4 * K)];
   for (const e of eyes) {
     const [x0, y0] = eyeAt(e);
-    if (face === "happy") {
+    if (face === "happy" || face === "eureka") {
       for (const [dx, dy] of [[0, 4], [1, 3], [2, 2], [3, 2], [4, 3], [5, 4], [1, 4], [4, 4]]) dot(x0 + dx, y0 + dy, INK);
       continue;
     }
@@ -187,7 +219,15 @@ function drawFace(blk: Blk, dot: Dot, face: Face, t: number) {
   blk(mx - 3.2, 20.2, 1, 1, HAIR[0]);
   blk(mx + 2.2, 20.2, 1, 1, HAIR[0]);
   for (let xx = Math.round((mx - 2.4) * K); xx < Math.round((mx + 2.4) * K); xx += 2) dot(xx, Math.round(19.4 * K), HAIR[2]);
-  if (face === "happy") {
+  if (face === "eureka") {
+    // 크게 벌린 입과 머리 옆의 반짝임
+    blk(mx - 1.6, 21, 3.2, 2, INK);
+    blk(mx - 1, 21.8, 2, 1, "#e85a6f");
+    for (const [u, v] of [[1.2, 6], [30.2, 6]]) {
+      blk(u, v - 1, 0.6, 2.6, "#ffe066");
+      blk(u - 1, v, 2.6, 0.6, "#ffe066");
+    }
+  } else if (face === "happy") {
     blk(mx - 1.6, 21.6, 3.2, 0.6, INK);
     blk(mx - 2.2, 21.1, 0.6, 0.6, INK);
     blk(mx + 1.6, 21.1, 0.6, 0.6, INK);

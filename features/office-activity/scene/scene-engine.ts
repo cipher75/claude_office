@@ -37,8 +37,9 @@ export type Walker = {
 // 생각하거나 답을 쓰는 중이므로 종이에 무언가를 적는다(write). 턴이 끝나 퇴근할 때는 담담하다(plain).
 export type BossPose = "think" | "write" | "approve" | "confused" | "plain";
 
-// 보스가 다 쓰고 던진 종이 한 장. 화면이 날아가는 모습을 그리고, 엔진은 수명이 다하면 지운다.
-export type Paper = { id: number; x: number; y: number; toss: "back" | "up" };
+// 보스가 "유레카!" 하며 흩뿌린 종이 한 장. 손에서 (dx, dy)만큼 솟구쳤다가 fall만큼 떨어지며 spin도 돈다.
+// 화면이 날아가는 모습을 그리고, 엔진은 수명이 다하면 지운다.
+export type Paper = { id: number; x: number; y: number; dx: number; dy: number; fall: number; spin: number; delay: number };
 
 // 보스가 오래 혼자 쓰고 있으면 가끔 커피를 가져다주는 비서.
 export type Secretary = {
@@ -63,6 +64,8 @@ export type Boss = {
   frame: number;
   moving: boolean;
   fading: boolean;
+  // 혼자 쓰다가 한 묶음을 다 써서 두 팔을 번쩍 들고 종이를 흩뿌리는 중.
+  cheering: boolean;
 };
 
 type Phase = "to-work" | "idle" | "to-wait" | "waiting" | "sad" | "glad" | "stop" | "to-report" | "reporting" | "leaving";
@@ -101,13 +104,17 @@ const REPORT_RETRY = 0.5;
 const FRAME_TIME = 0.17;
 // 일을 마친 캐릭터가 바로 나가지 않고 더 돌아다니는 시간. 짧은 호출도 화면에서 볼 수 있게 한다.
 const LINGER = 3;
-// 종이를 다 쓰고 던지는 간격(초). 최소값에 난수를 더한다.
-const PAPER_EVERY = 2.4;
-const PAPER_JITTER = 2.6;
-// 화면이 날아가는 종이를 보여주는 시간. 화면의 애니메이션 길이와 같다.
-export const PAPER_LIFE = 1.3;
-// 보스가 손을 움직이는 간격.
-const WRITE_FRAME_TIME = 0.22;
+// 한 묶음을 다 쓰고 종이를 흩뿌리는 간격(초). 최소값에 난수를 더한다.
+const PAPER_EVERY = 4.5;
+const PAPER_JITTER = 3;
+// 한 번에 흩뿌리는 종이 장수와, 팔을 들고 있는 시간.
+const BURST_MIN = 6;
+const BURST_JITTER = 3;
+const CHEER_TIME = 0.9;
+// 화면이 날아가는 종이를 보여주는 시간. 화면의 애니메이션 길이(지연 포함)보다 조금 길다.
+export const PAPER_LIFE = 1.9;
+// 보스가 연필을 움직이는 간격.
+const WRITE_FRAME_TIME = 0.13;
 // 비서는 보스가 쉬지 않고 이만큼(초) 혼자 쓴 뒤에야 오고, 한 번 온 뒤에는 COFFEE_COOLDOWN 동안 오지 않는다.
 // 자주 오면 산만하므로 짧은 생각에는 오지 않게 했다.
 const COFFEE_AFTER = 25;
@@ -130,6 +137,7 @@ export class SceneEngine {
     frame: 0,
     moving: false,
     fading: false,
+    cheering: false,
     path: [],
     frameTime: 0,
     phase: "gone",
@@ -138,6 +146,7 @@ export class SceneEngine {
   private paperList: (Paper & { age: number })[] = [];
   private paperId = 0;
   private nextPaper = PAPER_EVERY;
+  private cheerTime = 0;
   private writeFrameTime = 0;
   // 보스가 쉬지 않고 혼자 쓴 시간, 마지막 커피 뒤로 지난 시간, 이번에 커피가 올 때까지 쓸 시간.
   private writeStreak = 0;
@@ -271,9 +280,16 @@ export class SceneEngine {
     if (!writing) {
       this.writeStreak = 0;
       this.nextPaper = PAPER_EVERY;
+      this.cheerTime = 0;
+      b.cheering = false;
       return;
     }
     this.writeStreak += dt;
+    if (this.cheerTime > 0) {
+      this.cheerTime -= dt;
+      b.cheering = this.cheerTime > 0;
+      return;
+    }
     this.writeFrameTime += dt;
     if (this.writeFrameTime >= WRITE_FRAME_TIME) {
       this.writeFrameTime = 0;
@@ -282,9 +298,31 @@ export class SceneEngine {
     this.nextPaper -= dt;
     if (this.nextPaper <= 0) {
       this.nextPaper = PAPER_EVERY + this.rng() * PAPER_JITTER;
-      this.paperList.push({ id: ++this.paperId, ...BOSS_HAND, toss: this.rng() < 0.5 ? "back" : "up", age: 0 });
+      this.scatterPapers();
     }
     if (!this.helper && this.writeStreak >= this.coffeeAfter && this.sinceCoffee >= COFFEE_COOLDOWN) this.callSecretary();
+  }
+
+  // 유레카! 두 팔을 들고 종이 여러 장을 머리 위로 부채꼴로 흩뿌린다.
+  private scatterPapers() {
+    this.cheerTime = CHEER_TIME;
+    this.chief.cheering = true;
+    const count = BURST_MIN + Math.floor(this.rng() * BURST_JITTER);
+    for (let i = 0; i < count; i++) {
+      // 왼쪽 위(-160°)부터 오른쪽 위(-20°)까지 고르게 나누고 조금씩 흔든다.
+      const angle = (-160 + (140 * (i + 0.5)) / count + (this.rng() - 0.5) * 14) * (Math.PI / 180);
+      const reach = 24 + this.rng() * 22;
+      this.paperList.push({
+        id: ++this.paperId,
+        ...BOSS_HAND,
+        dx: Math.cos(angle) * reach,
+        dy: Math.sin(angle) * reach,
+        fall: 14 + this.rng() * 16,
+        spin: (this.rng() < 0.5 ? -1 : 1) * (360 + this.rng() * 360),
+        delay: this.rng() * 0.15,
+        age: 0,
+      });
+    }
   }
 
   private callSecretary() {
