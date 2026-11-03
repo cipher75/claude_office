@@ -4,12 +4,13 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { cn } from "cn";
 
-import { SceneEngine, type Boss, type SceneCharacter, type Walker } from "./scene-engine";
+import { SceneEngine, type Boss, type Paper, type SceneCharacter, type Secretary, type Walker } from "./scene-engine";
 import { BOSS_HEIGHT, BOSS_WIDTH, drawBoss } from "./boss-sprite";
-import { BOSS_DESK } from "./layout";
+import { BOSS_DESK, COFFEE_ON_DESK } from "./layout";
 import { BG_HEIGHT, BG_WIDTH, drawDeskFront, drawOffice } from "./office-background";
 import { brightnessAt } from "./lighting";
 import styles from "./office-scene.module.css";
+import { SECRETARY_HEIGHT, SECRETARY_WIDTH, drawSecretary } from "./secretary-sprite";
 import { KIND_STYLE, SPRITE_HEIGHT, SPRITE_WIDTH, drawSprite, lookFor } from "./sprite";
 
 type OfficeSceneProps = {
@@ -63,6 +64,7 @@ export function OfficeScene({ characters, lit, hadWork, connected, alert }: Offi
 
   const walkers = engine.walkers;
   const boss = engine.boss;
+  const secretary = engine.secretary;
   const empty = walkers.length === 0;
   const note = !connected
     ? "연결된 세션이 없어요"
@@ -98,12 +100,22 @@ export function OfficeScene({ characters, lit, hadWork, connected, alert }: Offi
           style={{ zIndex: BOSS_DESK.bottom }}
         />
         {boss ? <BossSprite boss={boss} /> : null}
+        {engine.coffee ? <div className={styles.coffee} style={{ ...position(COFFEE_ON_DESK), zIndex: BOSS_DESK.bottom + 1 }} /> : null}
+        {engine.papers.map((p) => (
+          <PaperSprite key={p.id} paper={p} />
+        ))}
+        {secretary ? <SecretarySprite secretary={secretary} /> : null}
         {walkers.map((w) => (
           <WalkerSprite key={w.id} walker={w} />
         ))}
       </div>
       <div className={styles.layer}>
-        {boss ? <BossBubble boss={boss} /> : null}
+        {boss ? <BossBubble boss={boss} thanking={secretary?.serving === true} /> : null}
+        {secretary?.serving ? (
+          <div className={cn(styles.bubble, styles.edgeRight, styles.coffeeBubble)} style={position(secretary)}>
+            커피 드세요 ☕
+          </div>
+        ) : null}
         {walkers.map((w) => (
           <WalkerBubble key={w.id} walker={w} />
         ))}
@@ -150,7 +162,8 @@ function WalkerSprite({ walker }: { walker: Walker }) {
 function BossSprite({ boss }: { boss: Boss }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const { pose, seated, moving } = boss;
-  const frame = moving ? boss.frame % 4 : 0;
+  // 걷거나 쓰는 동안에만 동작이 바뀐다.
+  const frame = moving || pose === "write" ? boss.frame % 4 : 0;
 
   useEffect(() => {
     const context = ref.current?.getContext("2d");
@@ -173,15 +186,59 @@ function BossSprite({ boss }: { boss: Boss }) {
   );
 }
 
-// 앉은 보스의 말풍선: 생각 중 …, 결재 중 수고했어요!, 허용 대기를 보며 ?.
-function BossBubble({ boss }: { boss: Boss }) {
+// 앉은 보스의 말풍선: 생각하거나 쓰는 중 …, 결재 중 수고했어요!, 허용 대기를 보며 ?.
+// 혼자 쓰다가 비서가 커피를 건네면 고마워요.
+function BossBubble({ boss, thanking }: { boss: Boss; thanking: boolean }) {
   if (!boss.seated || boss.pose === "plain") return null;
+  const thanks = thanking && boss.pose === "write";
+  const thinking = (boss.pose === "think" || boss.pose === "write") && !thanks;
   return (
     <div
-      className={cn(styles.bubble, boss.pose === "confused" && styles.ask, boss.pose === "approve" && styles.glad, boss.pose === "think" && styles.think)}
+      className={cn(
+        styles.bubble,
+        boss.pose === "confused" && styles.ask,
+        (boss.pose === "approve" || thanks) && styles.glad,
+        thinking && styles.think
+      )}
       style={position(boss)}
     >
-      {boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : "…"}
+      {boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : thanks ? "고마워요" : "…"}
+    </div>
+  );
+}
+
+// 보스가 던진 종이. 날아가는 모습은 CSS 애니메이션이 그리고, 엔진이 수명이 다하면 지운다.
+function PaperSprite({ paper }: { paper: Paper }) {
+  return (
+    <div
+      className={cn(styles.paper, paper.toss === "back" ? styles.tossBack : styles.tossUp)}
+      style={{ ...position(paper), zIndex: BOSS_DESK.bottom + 2 }}
+    />
+  );
+}
+
+function SecretarySprite({ secretary }: { secretary: Secretary }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const { moving, carrying } = secretary;
+  const frame = moving ? secretary.frame % 4 : 0;
+
+  useEffect(() => {
+    const context = ref.current?.getContext("2d");
+    if (context) drawSecretary(context, { frame, moving, carrying });
+  }, [frame, moving, carrying]);
+
+  return (
+    <div
+      className={cn(styles.char, !moving && styles.bob, secretary.fading && styles.fading)}
+      style={{ ...position(secretary), zIndex: Math.round(secretary.y) }}
+      aria-label="비서"
+    >
+      <canvas
+        ref={ref}
+        width={SECRETARY_WIDTH}
+        height={SECRETARY_HEIGHT}
+        style={{ transform: `scaleX(${secretary.flip})`, filter: `brightness(${brightnessAt(secretary.x, secretary.y)}) saturate(1.1)` }}
+      />
     </div>
   );
 }

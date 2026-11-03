@@ -183,6 +183,83 @@
   letter-spacing: 0.1em;
 }
 
+.coffeeBubble {
+  background: #fde9d4;
+}
+
+/* 보스가 던진 종이: 손에서 뒤(어깨 너머)나 위로 빙글 돌며 날아가다 사라진다. 길이는 PAPER_LIFE와 같다. */
+.paper {
+  position: absolute;
+  left: calc(var(--x) * var(--p));
+  top: calc(var(--y) * var(--p));
+  width: calc(5 * var(--p));
+  height: calc(6 * var(--p));
+  border: 1px solid #8a8070;
+  background: repeating-linear-gradient(#fffdf3 0 2px, #c9cbe0 2px 3px);
+  transform: translate(-50%, -50%);
+  animation: 1.3s ease-out forwards;
+}
+
+.tossBack {
+  animation-name: toss-back;
+}
+
+.tossUp {
+  animation-name: toss-up;
+}
+
+@keyframes toss-back {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.6); opacity: 1; }
+  45% { transform: translate(calc(-50% + 9 * var(--p)), calc(-50% - 22 * var(--p))) rotate(200deg) scale(1); opacity: 1; }
+  100% { transform: translate(calc(-50% + 20 * var(--p)), calc(-50% - 4 * var(--p))) rotate(420deg) scale(0.8); opacity: 0; }
+}
+
+@keyframes toss-up {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.6); opacity: 1; }
+  50% { transform: translate(calc(-50% - 4 * var(--p)), calc(-50% - 30 * var(--p))) rotate(-180deg) scale(1); opacity: 1; }
+  100% { transform: translate(calc(-50% - 8 * var(--p)), calc(-50% - 18 * var(--p))) rotate(-360deg) scale(0.9); opacity: 0; }
+}
+
+/* 비서가 책상에 내려놓은 커피잔과 피어오르는 김 */
+.coffee {
+  position: absolute;
+  left: calc(var(--x) * var(--p));
+  top: calc(var(--y) * var(--p));
+  width: calc(4 * var(--p));
+  height: calc(4 * var(--p));
+  border: 1px solid #6b5a4a;
+  border-top: calc(1.2 * var(--p)) solid #6b3e22;
+  border-radius: 0 0 2px 2px;
+  background: #fffdf3;
+  transform: translate(-50%, -100%);
+}
+
+.coffee::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  bottom: 120%;
+  width: calc(1 * var(--p));
+  height: calc(3 * var(--p));
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.7);
+  animation: steam 1.6s ease-in-out infinite;
+}
+
+@keyframes steam {
+  0% { transform: translateY(0) scaleY(0.6); opacity: 0; }
+  40% { opacity: 0.8; }
+  100% { transform: translateY(calc(-3 * var(--p))) scaleY(1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paper,
+  .coffee::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 @container (max-width: 480px) {
   .ask span {
     display: none;

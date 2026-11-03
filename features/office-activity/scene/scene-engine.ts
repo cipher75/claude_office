@@ -1,5 +1,7 @@
 import type { CharacterKind, CharacterStatus } from "../types";
-import { BOSS_EXIT, BOSS_SEAT, DOOR, DOOR_OUTSIDE, REPORT_SPOTS, SLOTS, WALK_SPEED, WAYPOINTS, type Point } from "./layout";
+import {
+  BOSS_EXIT, BOSS_HAND, BOSS_SEAT, DOOR, DOOR_OUTSIDE, REPORT_SPOTS, SECRETARY_GATE, SECRETARY_SPOT, SLOTS, WALK_SPEED, WAYPOINTS, type Point,
+} from "./layout";
 import { route } from "./route";
 
 // 서버가 알려 준 캐릭터 목록을 화면 속 움직임으로 옮기는 엔진. DOM과 canvas를 모른다.
@@ -31,9 +33,26 @@ export type Walker = {
 };
 
 // 보스의 모습: 직원이 일하는 동안 생각에 잠기고(think), 결재할 때 도장을 들고(approve),
-// 허용 대기가 생기면 회의실을 보며 의아해한다(confused). 직원이 없어도 턴이 진행 중이면 생각에 잠기고,
-// 턴이 끝나 퇴근할 때는 담담하다(plain).
-export type BossPose = "think" | "approve" | "confused" | "plain";
+// 허용 대기가 생기면 회의실을 보며 의아해한다(confused). 직원이 없는데 턴이 진행 중이면 Claude가 혼자
+// 생각하거나 답을 쓰는 중이므로 종이에 무언가를 적는다(write). 턴이 끝나 퇴근할 때는 담담하다(plain).
+export type BossPose = "think" | "write" | "approve" | "confused" | "plain";
+
+// 보스가 다 쓰고 던진 종이 한 장. 화면이 날아가는 모습을 그리고, 엔진은 수명이 다하면 지운다.
+export type Paper = { id: number; x: number; y: number; toss: "back" | "up" };
+
+// 보스가 오래 혼자 쓰고 있으면 가끔 커피를 가져다주는 비서.
+export type Secretary = {
+  x: number;
+  y: number;
+  flip: 1 | -1;
+  frame: number;
+  moving: boolean;
+  fading: boolean;
+  // 커피를 들고 있는지. 건네고 나면 빈손으로 돌아간다.
+  carrying: boolean;
+  // 보스 옆에서 커피를 건네는 중.
+  serving: boolean;
+};
 
 export type Boss = {
   x: number;
@@ -70,6 +89,7 @@ type Internal = Walker &
   };
 
 type BossState = Boss & Mover & { phase: "seated" | "leaving" | "returning" | "gone"; fadeTime: number };
+type SecretaryState = Secretary & Mover & { phase: "to-boss" | "serving" | "leaving"; pause: number; fadeTime: number };
 
 const LIGHTS_OFF_DELAY = 1.5;
 const FADE_OUT = 0.4;
@@ -81,6 +101,19 @@ const REPORT_RETRY = 0.5;
 const FRAME_TIME = 0.17;
 // 일을 마친 캐릭터가 바로 나가지 않고 더 돌아다니는 시간. 짧은 호출도 화면에서 볼 수 있게 한다.
 const LINGER = 3;
+// 종이를 다 쓰고 던지는 간격(초). 최소값에 난수를 더한다.
+const PAPER_EVERY = 2.4;
+const PAPER_JITTER = 2.6;
+// 화면이 날아가는 종이를 보여주는 시간. 화면의 애니메이션 길이와 같다.
+export const PAPER_LIFE = 1.3;
+// 보스가 손을 움직이는 간격.
+const WRITE_FRAME_TIME = 0.22;
+// 비서는 보스가 쉬지 않고 이만큼(초) 혼자 쓴 뒤에야 오고, 한 번 온 뒤에는 COFFEE_COOLDOWN 동안 오지 않는다.
+// 자주 오면 산만하므로 짧은 생각에는 오지 않게 했다.
+const COFFEE_AFTER = 25;
+const COFFEE_JITTER = 15;
+const COFFEE_COOLDOWN = 180;
+const SERVE_PAUSE = 2.2;
 
 export class SceneEngine {
   private items: Internal[] = [];
@@ -102,9 +135,30 @@ export class SceneEngine {
     phase: "gone",
     fadeTime: 0,
   };
+  private paperList: (Paper & { age: number })[] = [];
+  private paperId = 0;
+  private nextPaper = PAPER_EVERY;
+  private writeFrameTime = 0;
+  // 보스가 쉬지 않고 혼자 쓴 시간, 마지막 커피 뒤로 지난 시간, 이번에 커피가 올 때까지 쓸 시간.
+  private writeStreak = 0;
+  private sinceCoffee = COFFEE_COOLDOWN;
+  private coffeeAfter: number;
+  private helper: SecretaryState | null = null;
+  // 비서가 책상에 내려놓은 커피. 보스가 퇴근할 때 치운다.
+  coffee = false;
   lit = false;
 
-  constructor(private readonly rng: () => number = Math.random) {}
+  constructor(private readonly rng: () => number = Math.random) {
+    this.coffeeAfter = COFFEE_AFTER + rng() * COFFEE_JITTER;
+  }
+
+  get papers(): Paper[] {
+    return this.paperList;
+  }
+
+  get secretary(): Secretary | null {
+    return this.helper;
+  }
 
   get walkers(): Walker[] {
     return this.items;
@@ -148,8 +202,10 @@ export class SceneEngine {
     else if (this.chief.phase === "seated") this.bossLeaves();
     this.advanceBoss(dt);
     this.chief.pose = this.bossPose();
-    // 보스까지 퇴근한 뒤에 불이 꺼진다.
-    if (!this.lit || this.chief.phase !== "gone") return;
+    this.advanceWriting(dt);
+    this.advanceSecretary(dt);
+    // 보스와 비서까지 퇴근한 뒤에 불이 꺼진다.
+    if (!this.lit || this.chief.phase !== "gone" || this.helper) return;
     this.emptyTime += dt;
     if (this.emptyTime >= LIGHTS_OFF_DELAY) this.lit = false;
   }
@@ -172,6 +228,8 @@ export class SceneEngine {
 
   private bossLeaves() {
     const b = this.chief;
+    this.coffee = false;
+    if (this.helper && this.helper.phase !== "leaving") this.secretaryLeaves();
     b.seated = false;
     b.phase = "leaving";
     b.path = [...BOSS_EXIT, ...route(BOSS_EXIT[BOSS_EXIT.length - 1], DOOR_OUTSIDE)];
@@ -198,9 +256,88 @@ export class SceneEngine {
     if (phases.has("to-wait") || phases.has("waiting")) return "confused";
     if (phases.has("reporting")) return "approve";
     if (phases.has("to-work") || phases.has("idle") || phases.has("to-report")) return "think";
-    // 직원이 없어도 서버가 불을 켜 두었으면 턴이 진행 중이다. Claude가 다음 일을 생각하는 중이다.
-    if (this.serverLit) return "think";
+    // 직원이 없어도 서버가 불을 켜 두었으면 턴이 진행 중이다. Claude가 혼자 생각하거나 답을 쓰는 중이다.
+    if (this.serverLit) return "write";
     return "plain";
+  }
+
+  // 앉아서 쓰는 동안 손을 움직이고, 가끔 다 쓴 종이를 뒤나 위로 던진다. 쉬지 않고 오래 쓰면 비서를 부른다.
+  private advanceWriting(dt: number) {
+    for (const p of this.paperList) p.age += dt;
+    this.paperList = this.paperList.filter((p) => p.age < PAPER_LIFE);
+    this.sinceCoffee += dt;
+    const b = this.chief;
+    const writing = b.phase === "seated" && b.pose === "write";
+    if (!writing) {
+      this.writeStreak = 0;
+      this.nextPaper = PAPER_EVERY;
+      return;
+    }
+    this.writeStreak += dt;
+    this.writeFrameTime += dt;
+    if (this.writeFrameTime >= WRITE_FRAME_TIME) {
+      this.writeFrameTime = 0;
+      b.frame += 1;
+    }
+    this.nextPaper -= dt;
+    if (this.nextPaper <= 0) {
+      this.nextPaper = PAPER_EVERY + this.rng() * PAPER_JITTER;
+      this.paperList.push({ id: ++this.paperId, ...BOSS_HAND, toss: this.rng() < 0.5 ? "back" : "up", age: 0 });
+    }
+    if (!this.helper && this.writeStreak >= this.coffeeAfter && this.sinceCoffee >= COFFEE_COOLDOWN) this.callSecretary();
+  }
+
+  private callSecretary() {
+    this.helper = {
+      ...DOOR,
+      flip: 1,
+      frame: 0,
+      moving: true,
+      fading: false,
+      carrying: true,
+      serving: false,
+      path: [...route(DOOR, SECRETARY_GATE), SECRETARY_SPOT],
+      frameTime: 0,
+      phase: "to-boss",
+      pause: 0,
+      fadeTime: 0,
+    };
+    this.sinceCoffee = 0;
+    this.coffeeAfter = COFFEE_AFTER + this.rng() * COFFEE_JITTER;
+  }
+
+  private secretaryLeaves() {
+    const s = this.helper;
+    if (!s) return;
+    s.serving = false;
+    s.phase = "leaving";
+    s.path = [SECRETARY_GATE, ...route(SECRETARY_GATE, DOOR_OUTSIDE)];
+    s.moving = true;
+  }
+
+  private advanceSecretary(dt: number) {
+    const s = this.helper;
+    if (!s) return;
+    if (s.phase === "serving") {
+      s.pause -= dt;
+      if (s.pause > 0) return;
+      // 커피를 책상에 내려놓고 돌아간다.
+      s.carrying = false;
+      this.coffee = this.chief.phase === "seated";
+      this.secretaryLeaves();
+      return;
+    }
+    if (s.fading) {
+      s.fadeTime += dt;
+      if (s.fadeTime >= FADE_OUT) this.helper = null;
+      return;
+    }
+    if (!this.move(s, dt)) return;
+    if (s.phase === "leaving") s.fading = true;
+    else {
+      // 보스가 있는 왼쪽을 보고 커피를 건넨다.
+      Object.assign(s, { phase: "serving", serving: true, flip: -1, pause: SERVE_PAUSE });
+    }
   }
 
   private spawn(character: SceneCharacter, placed = false) {

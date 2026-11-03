@@ -16,6 +16,7 @@ const SHOE = ramp(20, 0.45, 0.28);
 const WOOD = ramp(28, 0.55, 0.5);
 const STAMP = ramp(0, 0.65, 0.42);
 const GOLD = ramp(45, 0.85, 0.55);
+const PAPER = ramp(50, 0.3, 0.9, 5, 0.25);
 const INK = "#2a2040";
 const BROW = "#4b4f5c";
 const IRIS = ["#2a2040", "#3b2a4a", "#6a4a3a", "#9a6a4a", "#c08a5a"];
@@ -24,12 +25,14 @@ const DESK_CUT = 27.2;
 
 export type BossSpriteOptions = { pose: BossPose; seated: boolean; frame: number; moving: boolean };
 
-type Arm = "desk" | "chin" | "stamp" | "side";
-type Face = "think" | "happy" | "confused" | "plain";
+type Arm = "desk" | "chin" | "stamp" | "write" | "side";
+type Face = "think" | "focus" | "happy" | "confused" | "plain";
 
 function look(o: BossSpriteOptions): { face: Face; arm: Arm; turn: number } {
   if (!o.seated) return { face: "plain", arm: "side", turn: 0 };
   if (o.pose === "think") return { face: "think", arm: "chin", turn: 0 };
+  // 혼자 쓰는 중: 종이를 내려다보며 펜을 쥔 손을 움직인다.
+  if (o.pose === "write") return { face: "focus", arm: "write", turn: 0 };
   if (o.pose === "approve") return { face: "happy", arm: "stamp", turn: 0 };
   // 허용 대기: 오른쪽 회의실 쪽으로 고개를 돌린다.
   if (o.pose === "confused") return { face: "confused", arm: "desk", turn: 2.2 };
@@ -38,12 +41,18 @@ function look(o: BossSpriteOptions): { face: Face; arm: Arm; turn: number } {
 
 export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
   const { add: addPart, paint } = pixelArt(32, 36, K);
-  const add = (r: string[], test: (u: number, v: number) => boolean, light: [number, number, number, number], bias = 0) =>
-    addPart(r, test, light, { bias });
+  const add = (
+    r: string[],
+    test: (u: number, v: number) => boolean,
+    light: [number, number, number, number],
+    opt: number | { inner?: boolean } = 0
+  ) => addPart(r, test, light, typeof opt === "number" ? { bias: opt } : opt);
 
   const { face, arm, turn: t } = look(o);
   const cut = o.seated ? DESK_CUT : 31;
   const f = o.moving ? o.frame % 4 : 0;
+  // 쓰는 손은 종이 위를 오른쪽으로 세 칸 옮겨 가다가 줄을 바꾼다.
+  const pen = arm === "write" ? [0, 1.1, 2.2, 0.6][o.frame % 4] : 0;
   const leftUp = f === 1 ? 1 : 0;
   const rightUp = f === 3 ? 1 : 0;
   const swing = f === 1 ? 0.9 : f === 3 ? -0.9 : 0;
@@ -66,6 +75,11 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
     if (arm === "desk") {
       add(SUIT, ellipse(21.6, 27.8, 4, 1.8), [20, 27, 4, 2]);
       add(SKIN, ellipse(17.6, 28.3, 1.8, 1.4), [17, 28, 2, 2]);
+    } else if (arm === "write") {
+      // 책상 위 종이와 그 위를 오가는 오른손
+      add(PAPER, (u, v) => u >= 17.6 && u <= 25.6 && v >= 25.2 && v <= cut, [19, 25.3, 6, 2], { inner: false });
+      add(SUIT, ellipse(25 + pen * 0.4, 26.6, 3.4, 1.8), [24, 26, 4, 2]);
+      add(SKIN, ellipse(20.8 + pen, 26.4, 1.7, 1.4), [20.5, 26, 2, 2]);
     } else add(SUIT, ellipse(23.4, 24.2, 2.3, 3.6), [22.5, 23, 3, 4]);
   }
   if (t) add(SKIN, ellipse(5.8, 15.6, 1.6, 2.3), [5.4, 15, 2, 2.5]);
@@ -99,6 +113,12 @@ export function drawBoss(c: CanvasRenderingContext2D, o: BossSpriteOptions) {
       }
     }
     blk(20.2, 23.4, 1.8, 0.9, "#ffd23f");
+    if (arm === "write") {
+      // 종이에 써 내려간 줄과 손에 쥔 펜
+      for (let line = 0; line < 2; line++) blk(18.2, 25.8 + line * 0.9, 1 + (o.frame % 4) * 1.2 + line * 0.8, 0.5, "#7a7f9a");
+      blk(21.4 + pen, 23.6, 0.6, 2.4, "#3a3550");
+      blk(21.4 + pen, 23.2, 0.6, 0.5, GOLD[3]);
+    }
     drawFace(blk, dot, face, t);
     for (let x = 12; x < 22; x++) dot(x + 8, 6 + Math.round(Math.abs(x - 17) * 0.4), HAIR[4]);
   }, { shadow: o.seated ? undefined : [16, 34.6, 9.5, 1.6] });
@@ -134,9 +154,9 @@ function drawFace(blk: Blk, dot: Dot, face: Face, t: number) {
         dot(x0 + xx, y0 + yy, yy === 0 || xx === 0 || xx === 5 ? INK : "#ffffff");
       }
     }
-    // 생각할 때는 위를, 의아할 때는 오른쪽(회의실)을 본다.
+    // 생각할 때는 위를, 쓸 때는 아래(종이)를, 의아할 때는 오른쪽(회의실)을 본다.
     const px = face === "confused" ? 2 : 1;
-    const py = face === "think" ? 1 : 2;
+    const py = face === "think" ? 1 : face === "focus" ? 3 : 2;
     for (let yy = 0; yy < 5 && py + yy <= 6; yy++) for (let xx = 0; xx < 3; xx++) dot(x0 + px + xx, y0 + py + yy, IRIS[yy]);
     dot(x0 + px, y0 + py, "#ffffff");
     dot(x0 + px + 1, y0 + py, "#ffffff");
