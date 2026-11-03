@@ -114,6 +114,15 @@ describe("호출의 실행 여부 읽기", () => {
     expect(read(lines).outcomes).toEqual([{ toolUseId: "a1", executed: true, async: true, rejected: false }]);
   });
 
+  test("백그라운드로 시작한 결과에서 시작한 sub-agent의 id를 함께 넘긴다", () => {
+    const lines = [
+      result("a1", "Async agent launched", { isAsync: true, status: "async_launched", agentId: "agent-1" }),
+      postRecord("a1"),
+    ];
+
+    expect(read(lines).outcomes).toEqual([{ toolUseId: "a1", executed: true, async: true, agentId: "agent-1", rejected: false }]);
+  });
+
   test("대화 중에 tool_result를 언급한 메시지는 결과로 보지 않는다", () => {
     const quoted = JSON.stringify({
       type: "assistant",

@@ -625,6 +625,182 @@ describe("sub-agent 안의 허용 대기", () => {
     expect(statusOf(state)).toEqual([["a1", "approved"]]);
   });
 
+  test.each(["PostToolUse", "PostToolUseFailure", "TranscriptExecuted"])(
+    "본 세션의 같은 입력 호출이 %s로 끝나도 sub-agent의 허용 대기는 그대로 남는다",
+    (name) => {
+      const state = apply(
+        emptyOfficeState(), connect, mainBash, fromAgent("PermissionRequest"),
+        { ...mainBash, hook_event_name: name }
+      );
+
+      expect(session(state).characters).toEqual([
+        expect.objectContaining({ agentId: "agent-1", status: "waiting", orphan: true }),
+      ]);
+      expect(session(state).doneCount).toBe(1);
+    }
+  );
+
+  test("다른 sub-agent의 같은 입력 호출이 끝나도 허용 대기는 서로 영향을 주지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(), connect, fromAgent("PermissionRequest"),
+      fromAgent("PreToolUse", { agent_id: "agent-2", tool_use_id: "other" }),
+      fromAgent("PostToolUse", { agent_id: "agent-2", tool_use_id: "other" })
+    );
+
+    expect(session(state).characters).toEqual([
+      expect.objectContaining({ agentId: "agent-1", status: "waiting", orphan: true }),
+    ]);
+    expect(session(state).doneCount).toBe(1);
+  });
+
+  test("본 세션의 허용 요청은 sub-agent의 같은 입력 호출과 짝짓지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(), connect,
+      fromAgent("PreToolUse", { tool_use_id: "child" }),
+      { hook_event_name: "PermissionRequest", session_id: S, tool_name: "Bash", tool_input: push }
+    );
+
+    expect(session(state).characters).toEqual([
+      expect.objectContaining({ id: "child", agentId: "agent-1", status: "working" }),
+      expect.objectContaining({ status: "waiting", orphan: true }),
+    ]);
+    expect(session(state).characters[1].agentId).toBeUndefined();
+  });
+
+  // agent-1을 백그라운드로 시작한다. 시작 응답의 agentId가 그 안의 호출이 가진 agent_id와 같다.
+  const bgLaunch = [
+    { hook_event_name: "PreToolUse", session_id: S, tool_use_id: "bg", tool_name: "Agent", tool_input: { subagent_type: "Explore" } },
+    {
+      hook_event_name: "PostToolUse", session_id: S, tool_use_id: "bg", tool_name: "Agent",
+      tool_response: { isAsync: true, status: "async_launched", agentId: "agent-1" },
+    },
+  ];
+  const bgFinished = { hook_event_name: "TranscriptTaskFinished", session_id: S, tool_use_id: "bg" };
+  const waitingIds = (state: OfficeState) =>
+    session(state).characters.filter((c) => c.status === "waiting").map((c) => c.agentId ?? "main");
+
+  test.each(["Stop", "TranscriptInterrupted"])(
+    "포그라운드 sub-agent의 허용 대기는 본 세션이 %s로 끝날 때 함께 중단됨으로 정리한다",
+    (name) => {
+      const state = apply(
+        emptyOfficeState(), connect, mainBash,
+        { hook_event_name: "PermissionRequest", session_id: S, tool_name: "Bash", tool_input: push },
+        fromAgent("PermissionRequest"),
+        { hook_event_name: name, session_id: S }
+      );
+
+      expect(statusOf(state)).toEqual([["main", "cancelled"], [expect.stringMatching(/^permission-/), "cancelled"]]);
+      expect(session(state)).toMatchObject({ inTurn: false, doneCount: 2 });
+    }
+  );
+
+  test.each(["Stop", "TranscriptInterrupted"])(
+    "일하는 백그라운드 sub-agent의 허용 대기는 본 세션이 %s로 끝나도 남는다",
+    (name) => {
+      const state = apply(
+        emptyOfficeState(), connect, ...bgLaunch, mainBash,
+        { hook_event_name: "PermissionRequest", session_id: S, tool_name: "Bash", tool_input: push },
+        fromAgent("PermissionRequest"),
+        { hook_event_name: name, session_id: S }
+      );
+
+      expect(waitingIds(state)).toEqual(["agent-1"]);
+      expect(session(state)).toMatchObject({ inTurn: false, lit: true });
+    }
+  );
+
+  test("다른 sub-agent의 허용 대기는 백그라운드 sub-agent가 일해도 턴 종료에 정리한다", () => {
+    const state = apply(
+      emptyOfficeState(), connect, ...bgLaunch,
+      fromAgent("PermissionRequest", { agent_id: "agent-2" }),
+      { hook_event_name: "Stop", session_id: S }
+    );
+
+    expect(waitingIds(state)).toEqual([]);
+  });
+
+  test("백그라운드 sub-agent의 PreToolUse가 늦게 와도 턴 종료로 허용 대기를 정리하지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(), connect, ...bgLaunch, fromAgent("PermissionRequest"),
+      fromAgent("PreToolUse", { tool_use_id: "child" }),
+      { hook_event_name: "Stop", session_id: S }
+    );
+
+    expect(session(state).characters).toEqual([
+      expect.objectContaining({ id: "bg", status: "working", background: true }),
+      expect.objectContaining({ id: "child", agentId: "agent-1", status: "waiting", orphan: false }),
+    ]);
+  });
+
+  test("턴 종료는 백그라운드 sub-agent의 진행 중 호출을 남기고, 포그라운드 sub-agent의 호출은 끝낸다", () => {
+    const state = apply(
+      emptyOfficeState(), connect, ...bgLaunch,
+      fromAgent("PreToolUse", { tool_use_id: "child" }),
+      fromAgent("PreToolUse", { tool_use_id: "fg", agent_id: "agent-2" }),
+      { hook_event_name: "Stop", session_id: S }
+    );
+
+    expect(session(state).characters.map((c) => c.id)).toEqual(["bg", "child"]);
+  });
+
+  test.each([
+    ["PostToolUse", "approved"],
+    ["PostToolUseFailure", "approved"],
+    ["PermissionDenied", "denied"],
+  ])("본 세션 턴 종료 뒤에도 백그라운드 sub-agent의 %s로 허용 대기를 해제한다", (name, status) => {
+    const state = apply(
+      emptyOfficeState(), connect, ...bgLaunch, fromAgent("PermissionRequest"),
+      { hook_event_name: "Stop", session_id: S },
+      fromAgent(name, { tool_use_id: "child" })
+    );
+
+    expect(statusOf(state)).toEqual([["bg", "working"], ["child", status]]);
+  });
+
+  test("Post hook을 놓쳐 transcript로 백그라운드 시작을 알아도 그 sub-agent의 허용 대기는 턴 종료에 남는다", () => {
+    const state = apply(
+      emptyOfficeState(), connect, bgLaunch[0],
+      {
+        hook_event_name: "TranscriptExecuted", session_id: S, tool_use_id: "bg", tool_name: "Agent",
+        tool_response: { isAsync: true, agentId: "agent-1" },
+      },
+      fromAgent("PermissionRequest"),
+      { hook_event_name: "Stop", session_id: S }
+    );
+
+    expect(waitingIds(state)).toEqual(["agent-1"]);
+  });
+
+  test("백그라운드 sub-agent가 끝나면 그 안에 남은 허용 대기도 중단됨으로 정리한다", () => {
+    const state = apply(
+      emptyOfficeState(), connect, ...bgLaunch, fromAgent("PermissionRequest"),
+      { hook_event_name: "Stop", session_id: S }, bgFinished
+    );
+
+    expect(statusOf(state)).toEqual([[expect.stringMatching(/^permission-/), "cancelled"]]);
+  });
+
+  test("백그라운드 sub-agent가 끝나도 새 턴에서 다른 sub-agent가 기다리는 허용은 지우지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(), connect, ...bgLaunch,
+      { hook_event_name: "Stop", session_id: S },
+      { hook_event_name: "UserPromptSubmit", session_id: S },
+      fromAgent("PermissionRequest", { agent_id: "agent-2" }),
+      bgFinished
+    );
+
+    expect(waitingIds(state)).toEqual(["agent-2"]);
+  });
+
+  test.each(["SessionEnd", "OfficeDisconnect"])("%s는 sub-agent의 허용 대기도 함께 내보낸다", (name) => {
+    const state = apply(
+      emptyOfficeState(), connect, fromAgent("PermissionRequest"),
+      { hook_event_name: name, session_id: S }
+    );
+
+    expect(session(state)).toMatchObject({ connected: false, lit: false, characters: [], doneCount: 1 });
+  });
+
   test("허용 없이 끝난 다른 호출이나 본 세션의 Post hook은 sub-agent의 ?에 이어 붙지 않는다", () => {
     const state = apply(
       emptyOfficeState(),
