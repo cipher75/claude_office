@@ -43,6 +43,71 @@
   white-space: nowrap;
 }
 
+/* 화이트보드의 흰 판(논리 좌표 112, 8에서 50 x 24)을 덮고 task 목록을 적는다. */
+.board {
+  position: absolute;
+  left: calc(112 * var(--p));
+  top: calc(8 * var(--p));
+  width: calc(50 * var(--p));
+  height: calc(24 * var(--p));
+  padding: calc(0.8 * var(--p)) calc(1.4 * var(--p));
+  overflow: hidden;
+  background: #fdfdf8;
+  color: #2f3a4a;
+  font-size: calc(var(--p) * 3);
+  line-height: 1.45;
+  letter-spacing: -0.03em;
+  transition: filter 1s;
+}
+
+.board ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board li::before {
+  content: "□ ";
+}
+
+.taskActive {
+  color: #1d4fb8;
+  font-weight: 700;
+}
+
+.taskActive::before {
+  content: "▶ " !important;
+}
+
+.taskDone {
+  color: #8a8f99;
+  text-decoration: line-through;
+  text-decoration-color: #d64a4a;
+  text-decoration-thickness: 2px;
+}
+
+.taskDone::before {
+  content: "☑ " !important;
+}
+
+.boardCount {
+  position: absolute;
+  right: calc(1 * var(--p));
+  bottom: calc(0.4 * var(--p));
+  color: #8a8f99;
+  font-size: calc(var(--p) * 2.4);
+}
+
+.off .board {
+  filter: brightness(0.45) saturate(0.7);
+}
+
 .signRoom {
   background: #2f5d8a;
 }

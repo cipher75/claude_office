@@ -1075,3 +1075,56 @@ describe("세션 마무리", () => {
     expect(state.order).toEqual([]);
   });
 });
+
+describe("task 목록", () => {
+  const plan = (id: string, input: Record<string, unknown>, event = "PostToolUse") => ({
+    hook_event_name: event,
+    session_id: S,
+    tool_name: "mcp__ccd_turn__update_plan",
+    tool_use_id: id,
+    tool_input: input,
+  });
+  const items = {
+    items: [{ content: "찾기", status: "in_progress" }, { content: "고치기", status: "pending" }],
+  };
+
+  test("실행된 update_plan 호출로 세션의 task 목록을 만들고 바꾼다", () => {
+    const state = apply(emptyOfficeState(), connect, plan("p1", items), plan("p2", { advance: true }));
+
+    expect(session(state).plan).toEqual([
+      { content: "찾기", status: "completed" },
+      { content: "고치기", status: "in_progress" },
+    ]);
+  });
+
+  test("같은 호출이 Post hook과 transcript 기록으로 두 번 와도 한 번만 반영한다", () => {
+    const state = apply(
+      emptyOfficeState(),
+      connect,
+      plan("p1", items),
+      plan("p2", { advance: true }),
+      plan("p2", { advance: true }, "TranscriptExecuted")
+    );
+
+    expect(session(state).plan?.map((i) => i.status)).toEqual(["completed", "in_progress"]);
+  });
+
+  test("실행 전(PreToolUse)이나 실패한 호출은 목록을 바꾸지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(),
+      connect,
+      plan("p1", items, "PreToolUse"),
+      plan("p1", items, "PostToolUseFailure")
+    );
+
+    expect(session(state).plan).toBeUndefined();
+  });
+
+  test("task 목록을 쓰지 않는 세션에는 목록이 없다", () => {
+    const state = apply(emptyOfficeState(), connect, {
+      hook_event_name: "PostToolUse", session_id: S, tool_name: "Read", tool_use_id: "r1", tool_input: { file_path: "/a.ts" },
+    });
+
+    expect(session(state).plan).toBeUndefined();
+  });
+});

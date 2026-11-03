@@ -129,6 +129,17 @@ describe("호스팅으로 보낼 상태", () => {
 });
 
 describe("호스팅으로 보내지 않는 세션 정보", () => {
+  test("task 목록의 문구는 보내지 않는다", () => {
+    const state = stateWith();
+    state.sessions.s1.plan = [{ content: "private-client 결제 버그 고치기", status: "in_progress" }];
+    state.sessions.s1.planCallIds = ["p1"];
+
+    const redacted = redactState(state);
+
+    expect(redacted.sessions.s1).not.toHaveProperty("plan");
+    expect(redacted.sessions.s1).not.toHaveProperty("planCallIds");
+  });
+
   test("세션의 전체 경로와 탭에서 내린 세션은 보내지 않는다", () => {
     const state = stateWith();
     state.sessions.s1.cwd = "/home/me/private-client/side-project";

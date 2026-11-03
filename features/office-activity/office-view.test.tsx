@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { OfficeView } from "./office-view";
-import type { Character, OfficeState } from "./types";
+import type { Character, OfficeState, Session } from "./types";
 
 // 테스트가 서버 대신 연결을 열고, 끊고, 상태를 보낼 수 있는 EventSource.
 class FakeEventSource {
@@ -203,5 +203,30 @@ describe("화면이 지금 상태를 보여주지 못할 때", () => {
 
     expect(screen.getByText("이전 상태 모름 · 앱에서 확인")).toBeInTheDocument();
     expect(screen.getByText("확인 필요")).toBeInTheDocument();
+  });
+});
+
+describe("게시판의 task 목록", () => {
+  const session = (plan?: Session["plan"]): OfficeState => ({
+    ...empty("i1"),
+    sessions: { a: { id: "a", name: "blog", connected: true, lit: true, doneCount: 0, characters: [], ...(plan ? { plan } : {}) } },
+    order: ["a"],
+  });
+
+  test("목록이 있으면 항목을 적고, 끝난 항목은 끝난 표시를 한다", () => {
+    render(<OfficeView />);
+    send(session([{ content: "찾기", status: "completed" }, { content: "고치기", status: "in_progress" }]));
+
+    const list = screen.getByRole("list", { name: "task 목록 1/2" });
+    expect(list).toHaveTextContent("찾기");
+    expect(screen.getByText("찾기").className).toMatch(/taskDone/);
+    expect(screen.getByText("고치기").className).not.toMatch(/taskDone/);
+  });
+
+  test("목록이 없으면 게시판에 아무것도 덮지 않는다", () => {
+    render(<OfficeView />);
+    send(session());
+
+    expect(screen.queryByRole("list", { name: /task 목록/ })).toBeNull();
   });
 });

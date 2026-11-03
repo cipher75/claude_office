@@ -12,6 +12,7 @@ import { brightnessAt } from "./lighting";
 import styles from "./office-scene.module.css";
 import { SECRETARY_HEIGHT, SECRETARY_WIDTH, drawSecretary } from "./secretary-sprite";
 import { KIND_STYLE, SPRITE_HEIGHT, SPRITE_WIDTH, drawSprite, lookFor } from "./sprite";
+import type { PlanItem } from "../types";
 
 type OfficeSceneProps = {
   characters: SceneCharacter[];
@@ -23,9 +24,11 @@ type OfficeSceneProps = {
   connected: boolean;
   // 장면이 지금 상태를 보여준다고 믿을 수 없을 때의 경고. 다른 안내보다 먼저, 캐릭터가 있어도 보여준다.
   alert?: string;
+  // 세션의 task 목록. 있으면 화이트보드의 차트 위에 목록을 적는다.
+  plan?: PlanItem[];
 };
 
-export function OfficeScene({ characters, lit, working, hadWork, connected, alert }: OfficeSceneProps) {
+export function OfficeScene({ characters, lit, working, hadWork, connected, alert, plan }: OfficeSceneProps) {
   const [engine] = useState(() => new SceneEngine());
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const bgRef = useRef<HTMLCanvasElement>(null);
@@ -90,6 +93,7 @@ export function OfficeScene({ characters, lit, working, hadWork, connected, aler
       <canvas ref={bgRef} className={styles.bg} width={BG_WIDTH} height={BG_HEIGHT} />
       <canvas ref={nightRef} className={cn(styles.bg, styles.night)} width={BG_WIDTH} height={BG_HEIGHT} />
       <div className={styles.layer}>
+        {plan?.length ? <TaskBoard plan={plan} /> : null}
         <div className={cn(styles.sign, styles.signRoom)} style={{ left: "calc(263 * var(--p))", top: "calc(53 * var(--p))" }}>
           허용 대기 회의실
         </div>
@@ -135,6 +139,32 @@ export function OfficeScene({ characters, lit, working, hadWork, connected, aler
       ) : empty && note ? (
         <div className={styles.note}>{note}</div>
       ) : null}
+    </div>
+  );
+}
+
+// 화이트보드에 한 번에 적는 줄 수. 넘치면 진행 중인 항목이 보이도록 위아래를 잘라 낸다.
+const BOARD_LINES = 5;
+
+function TaskBoard({ plan }: { plan: PlanItem[] }) {
+  const current = plan.findIndex((item) => item.status !== "completed");
+  const focus = current < 0 ? plan.length - 1 : current;
+  const start = Math.max(0, Math.min(focus - 1, plan.length - BOARD_LINES));
+  const shown = plan.slice(start, start + BOARD_LINES);
+  const done = plan.filter((item) => item.status === "completed").length;
+  return (
+    <div className={styles.board}>
+      <ol aria-label={`task 목록 ${done}/${plan.length}`}>
+        {shown.map((item, i) => (
+          <li
+            key={start + i}
+            className={cn(item.status === "completed" && styles.taskDone, item.status === "in_progress" && styles.taskActive)}
+          >
+            {item.content}
+          </li>
+        ))}
+      </ol>
+      <span className={styles.boardCount}>{`${done}/${plan.length}`}</span>
     </div>
   );
 }
