@@ -561,7 +561,7 @@ describe("/office close", () => {
       connect,
       { hook_event_name: "UserPromptSubmit", session_id: S },
       pre,
-      { hook_event_name: "TranscriptInterrupted", session_id: S }
+      { hook_event_name: "TranscriptInterrupted", session_id: S, interrupted_at: 1_003 }
     );
 
     expect(session(state)).toMatchObject({ inTurn: false, lit: false, characters: [] });
@@ -596,6 +596,92 @@ describe("/office close", () => {
 
   test("사무실이 모르는 세션의 끊기 신호는 세션을 만들지 않는다", () => {
     expect(apply(emptyOfficeState(), disconnect).sessions[S]).toBeUndefined();
+  });
+});
+
+describe("늦게 읽은 중단 기록", () => {
+  const event = (state: OfficeState, name: string, now: number, extra: Record<string, unknown> = {}) =>
+    applyHookEvent(state, { hook_event_name: name, session_id: S, ...extra }, now);
+  const call = { tool_use_id: "new-call", tool_name: "Read", tool_input: { file_path: "PRODUCT.md" } };
+  const connected = () => applyHookEvent(emptyOfficeState(), connect, 1_000);
+
+  test("이전 중단을 늦게 읽어도 새 프롬프트의 턴을 끝내지 않는다", () => {
+    const started = event(connected(), "UserPromptSubmit", 2_000);
+    const state = event(started, "TranscriptInterrupted", 5_000, { interrupted_at: 1_500 });
+
+    expect(session(state)).toMatchObject({ inTurn: true, lit: true });
+  });
+
+  test("새 도구 호출을 봤으면 프롬프트 hook을 놓쳐도 이전 중단으로 정리하지 않는다", () => {
+    const started = event(connected(), "PreToolUse", 2_000, call);
+    const state = event(started, "TranscriptInterrupted", 5_000, { interrupted_at: 1_500 });
+
+    expect(session(state)).toMatchObject({ inTurn: true, lit: true, doneCount: 0 });
+    expect(session(state).characters).toEqual([expect.objectContaining({ id: "new-call", status: "working" })]);
+  });
+
+  test("새 허용 대기도 이전 턴의 중단으로 지우지 않는다", () => {
+    const started = event(connected(), "PreToolUse", 2_000, call);
+    const waiting = event(started, "PermissionRequest", 2_100, call);
+    const state = event(waiting, "TranscriptInterrupted", 5_000, { interrupted_at: 1_500 });
+
+    expect(session(state).characters).toEqual([expect.objectContaining({ id: "new-call", status: "waiting" })]);
+    expect(session(state)).toMatchObject({ inTurn: true, doneCount: 0 });
+  });
+
+  test("같이 읽은 모델 호출이 중단보다 나중이면 프롬프트 없이 시작한 새 턴을 유지한다", () => {
+    const ended = event(connected(), "Stop", 1_200);
+    const started = event(ended, "TranscriptModelRequest", 5_000, { requested_at: 2_000 });
+    const state = event(started, "TranscriptInterrupted", 5_000, { interrupted_at: 1_500 });
+
+    expect(session(state)).toMatchObject({ inTurn: true, lit: true, turnEndedAt: 1_200 });
+  });
+
+  test("PreToolUse를 놓쳐 새 허용 요청만 받아도 이전 중단으로 대기를 지우지 않는다", () => {
+    const waiting = event(connected(), "PermissionRequest", 2_000, call);
+    const state = event(waiting, "TranscriptInterrupted", 5_000, { interrupted_at: 1_500 });
+
+    expect(session(state).characters).toEqual([expect.objectContaining({ status: "waiting", orphan: true })]);
+    expect(session(state)).toMatchObject({ lit: true, doneCount: 0 });
+  });
+
+  test("늦게 읽은 옛 모델 호출은 새 프롬프트로 확인한 진행 시각을 뒤로 돌리지 않는다", () => {
+    const started = event(connected(), "UserPromptSubmit", 3_000);
+    const oldRequest = event(started, "TranscriptModelRequest", 5_000, { requested_at: 1_200 });
+    const state = event(oldRequest, "TranscriptInterrupted", 5_000, { interrupted_at: 2_000 });
+
+    expect(session(state).inTurn).toBe(true);
+  });
+
+  test("현재 턴의 중단은 정리하고, 읽은 시각 대신 실제 중단 시각을 남긴다", () => {
+    const started = event(connected(), "PreToolUse", 2_000, call);
+    const ended = event(started, "TranscriptInterrupted", 5_000, { interrupted_at: 2_100 });
+
+    expect(session(ended)).toMatchObject({ inTurn: false, lit: false, characters: [], doneCount: 1, turnEndedAt: 2_100 });
+    const next = event(ended, "TranscriptModelRequest", 5_100, { requested_at: 3_000 });
+    expect(session(next).inTurn).toBe(true);
+  });
+
+  test("같은 밀리초에 중단한 현재 턴도 끝낼 수 있다", () => {
+    const started = event(connected(), "PreToolUse", 2_000, call);
+    const state = event(started, "TranscriptInterrupted", 5_000, { interrupted_at: 2_000 });
+
+    expect(session(state)).toMatchObject({ inTurn: false, characters: [], turnEndedAt: 2_000 });
+  });
+
+  test("이미 종료한 턴의 중단 기록은 종료 시각을 다시 쓰지 않는다", () => {
+    const ended = event(connected(), "Stop", 2_000);
+    const state = event(ended, "TranscriptInterrupted", 5_000, { interrupted_at: 1_500 });
+
+    expect(session(state)).toMatchObject({ inTurn: false, turnEndedAt: 2_000 });
+  });
+
+  test.each([undefined, "unknown", NaN, Infinity])("시각을 알 수 없는 중단(%s)은 현재 호출을 지우지 않는다", (at) => {
+    const started = event(connected(), "PreToolUse", 2_000, call);
+    const state = event(started, "TranscriptInterrupted", 5_000, { interrupted_at: at });
+
+    expect(session(state).characters).toHaveLength(1);
+    expect(session(state).inTurn).toBe(true);
   });
 });
 
@@ -686,7 +772,7 @@ describe("sub-agent 안의 허용 대기", () => {
         emptyOfficeState(), connect, mainBash,
         { hook_event_name: "PermissionRequest", session_id: S, tool_name: "Bash", tool_input: push },
         fromAgent("PermissionRequest"),
-        { hook_event_name: name, session_id: S }
+        { hook_event_name: name, session_id: S, interrupted_at: 1_004 }
       );
 
       expect(statusOf(state)).toEqual([["main", "cancelled"], [expect.stringMatching(/^permission-/), "cancelled"]]);
@@ -701,7 +787,7 @@ describe("sub-agent 안의 허용 대기", () => {
         emptyOfficeState(), connect, ...bgLaunch, mainBash,
         { hook_event_name: "PermissionRequest", session_id: S, tool_name: "Bash", tool_input: push },
         fromAgent("PermissionRequest"),
-        { hook_event_name: name, session_id: S }
+        { hook_event_name: name, session_id: S, interrupted_at: 1_006 }
       );
 
       expect(waitingIds(state)).toEqual(["agent-1"]);

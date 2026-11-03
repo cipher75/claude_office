@@ -51,20 +51,22 @@ export function applyHookEvent(
       session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, closed: true };
       break;
     case "UserPromptSubmit":
-      session = { ...session, connected: true, inTurn: true };
+      session = { ...session, connected: true, inTurn: true, turnActivityAt: now };
       break;
     case "PreToolUse":
       if (!session.characters.some((c) => c.id === text(payload.tool_use_id))) {
         session = { ...session, connected: true, characters: [...session.characters, startCharacter(payload, now)] };
       }
       // 턴 시작(UserPromptSubmit)을 놓친 세션도 도구 호출을 보면 턴 중인 것을 안다.
-      session = { ...session, inTurn: true };
+      session = { ...session, inTurn: true, ...(!text(payload.agent_id) ? { turnActivityAt: now } : {}) };
       break;
     case "UserPromptExpansion":
       session = { ...session, connected: true, characters: addSlashSkill(session.characters, payload, now) };
       break;
     case "PermissionRequest":
       session = markWaiting(session, payload, now);
+      // PreToolUse를 놓친 호출도 새 허용 요청을 받았다면 이전 턴의 중단으로 지우지 않는다.
+      if (!text(payload.agent_id)) session = { ...session, turnActivityAt: now };
       break;
     // 거절과 중단은 추정하지 않는다. 다음 신호만 쓰고, 모두 tool_use_id로 캐릭터를 찾는다.
     // PermissionDenied: auto 모드 분류기가 거절했다는 hook.
@@ -106,9 +108,23 @@ export function applyHookEvent(
     // sub-agent 안의 호출만 남긴다. Esc로 중단한 턴은 Stop hook 없이 끝나 서버가 transcript로 알려 준다.
     case "Stop":
     case "TranscriptInterrupted": {
+      let endedAt = now;
+      if (eventName === "TranscriptInterrupted") {
+        const at = payload.interrupted_at;
+        if (typeof at !== "number" || !Number.isFinite(at) ||
+          at < (session.turnActivityAt ?? 0) || at <= (session.turnEndedAt ?? 0)) break;
+        if (payload.interruption_kind === "tool") {
+          const target = interruptedMainCall(session, payload);
+          if (!target) break;
+          // 턴 종료 시각을 갱신하기 전에 id를 이어 붙여, 뒤따르는 결과에서도 같은 호출로 알아본다.
+          if (target.orphan) session = adoptOrphan(session, payload);
+          session = endUnexecuted(session, text(payload.tool_use_id), payload.rejected === true ? "denied" : "cancelled", now);
+        }
+        endedAt = at;
+      }
       const running = runningBackgroundAgents(session);
       session = closeCalls(session, (c) => !c.agentId || !running.has(c.agentId), now);
-      session = { ...session, priorUnknown: false, inTurn: false, turnEndedAt: now };
+      session = { ...session, priorUnknown: false, inTurn: false, turnEndedAt: endedAt };
       break;
     }
     case "SessionEnd":
@@ -118,7 +134,9 @@ export function applyHookEvent(
     // 마지막으로 턴이 끝난 뒤에 시작한 호출일 때만 턴이 진행 중이라고 본다.
     case "TranscriptModelRequest": {
       const at = typeof payload.requested_at === "number" ? payload.requested_at : undefined;
-      if (at !== undefined && at > (session.turnEndedAt ?? 0)) session = { ...session, inTurn: true };
+      if (at !== undefined && at > (session.turnEndedAt ?? 0)) {
+        session = { ...session, inTurn: true, turnActivityAt: Math.max(session.turnActivityAt ?? 0, at) };
+      }
       break;
     }
     default:
@@ -165,6 +183,24 @@ function withoutRetired(state: OfficeState, id: string): OfficeState {
   const retired = { ...state.retired };
   delete retired[id];
   return { ...state, retired };
+}
+
+// 도구 중단은 해당 호출만 근거로 삼는다. 다른 새 허용 대기는 턴 종료의 근거가 아니다.
+function interruptedMainCall(session: Session, payload: Payload): Character | undefined {
+  const id = text(payload.tool_use_id);
+  if (!id || isPastTurnCall(session, payload)) return undefined;
+  const known = session.characters.find((c) => c.id === id);
+  // id 없는 ?는 도구·입력뿐 아니라 호출 시각도 확인해야 옛 호출에 잘못 붙이지 않는다.
+  if (!known && typeof payload.tool_started_at !== "number") return undefined;
+  const target = known ?? [...session.characters].reverse().find((c) =>
+    c.orphan && !c.agentId && c.status === "waiting" && c.toolName === text(payload.tool_name) &&
+    stable(c.toolInput) === stable(payload.tool_input)
+  );
+  return target && !target.agentId && !target.background && isActive(target) ? target : undefined;
+}
+
+function isPastTurnCall(session: Session, payload: Payload): boolean {
+  return typeof payload.tool_started_at === "number" && payload.tool_started_at <= (session.turnEndedAt ?? 0);
 }
 
 function isActive(c: Character): boolean {
@@ -362,6 +398,7 @@ function adoptOrphan(session: Session, payload: Payload): Session {
   const id = text(payload.tool_use_id);
   const toolName = text(payload.tool_name);
   if (!id || !toolName || session.characters.some((c) => c.id === id)) return session;
+  if (isPastTurnCall(session, payload)) return session;
   const key = stable(payload.tool_input);
   // sub-agent 안의 호출은 허용 없이 끝나는 것도 Post hook이 오므로, 같은 sub-agent의 입력이 같은 ?에만 이어 붙인다.
   const agentId = text(payload.agent_id);

@@ -6,7 +6,7 @@ import { recordRawEvent } from "./raw-event-log";
 import { applyHookEvent, emptyOfficeState, pruneOfficeState } from "./session-state";
 import { finishedTaskToolUseIds } from "./task-notification";
 import { latestModelRequestAt } from "./model-request";
-import { hasInterruptedTurn } from "./turn-interrupt";
+import { readTurnInterruptions, type InterruptionReaderState, type TurnInterruption } from "./turn-interrupt";
 import { emptyReaderState, followTranscript, readCallOutcomes, stopFollowing } from "./transcript-watch";
 import type { OfficeState } from "./types";
 
@@ -76,9 +76,30 @@ function followTranscripts(payload: Record<string, unknown>) {
   if (typeof transcript !== "string" || !transcript) return;
   // followTranscript는 같은 파일에 대해 처음 넘긴 콜백만 쓰므로, 아직 판단하지 못한 결과도 그 콜백이 들고 있는다.
   let reader = emptyReaderState();
+  let interruptionReader: InterruptionReaderState = {};
   followTranscript(sessionId, transcript, (lines) => {
     const read = readCallOutcomes(reader, lines);
     reader = read.state;
+    const interrupted = readTurnInterruptions(interruptionReader, lines);
+    interruptionReader = interrupted.state;
+    const forwardInterruption = (interruption: TurnInterruption) => {
+      // 같은 줄에 결과와 중단이 있으면 실행 여부는 아직 pending이어도, 거절 여부와 호출 정보는 이미 읽었다.
+      const callResult = read.outcomes.find((outcome) => outcome.toolUseId === interruption.toolUseId)
+        ?? read.state.pending.find((result) => result.toolUseId === interruption.toolUseId);
+      ingestHookEvent({
+        hook_event_name: "TranscriptInterrupted", session_id: sessionId,
+        interrupted_at: interruption.at, interruption_kind: interruption.kind,
+        tool_use_id: interruption.toolUseId, tool_name: callResult?.toolName,
+        tool_input: callResult?.toolInput, tool_started_at: callResult?.startedAt, rejected: callResult?.rejected,
+      });
+    };
+    // 같이 읽은 새 모델 호출을 먼저 반영해, 더 오래된 중단으로 새 턴을 끝내지 않는다.
+    const requestedAt = latestModelRequestAt(lines);
+    if (requestedAt !== undefined) {
+      ingestHookEvent({ hook_event_name: "TranscriptModelRequest", session_id: sessionId, requested_at: requestedAt });
+    }
+    // 결과를 먼저 반영하면 대상이 종료 상태가 되므로, 도구 중단은 호출이 열려 있을 때 판정한다.
+    interrupted.interruptions.filter((interruption) => interruption.kind === "tool").forEach(forwardInterruption);
     const hooked = hookedIds(sessionId);
     for (const outcome of read.outcomes) {
       const contradicts = !outcome.executed && hooked.has(outcome.toolUseId);
@@ -89,6 +110,7 @@ function followTranscripts(payload: Record<string, unknown>) {
         tool_use_id: outcome.toolUseId,
         tool_name: outcome.toolName,
         tool_input: outcome.toolInput,
+        tool_started_at: outcome.startedAt,
         tool_response: { isAsync: outcome.async, agentId: outcome.agentId },
         rejected: outcome.rejected,
       });
@@ -97,13 +119,8 @@ function followTranscripts(payload: Record<string, unknown>) {
     for (const toolUseId of finishedTaskToolUseIds(lines)) {
       ingestHookEvent({ hook_event_name: "TranscriptTaskFinished", session_id: sessionId, tool_use_id: toolUseId });
     }
-    // `!` 명령 뒤처럼 UserPromptSubmit 없이 Claude가 답을 쓰기 시작하면, 모델 호출 기록으로 턴이 진행 중인 것을 안다.
-    const requestedAt = latestModelRequestAt(lines);
-    if (requestedAt !== undefined) {
-      ingestHookEvent({ hook_event_name: "TranscriptModelRequest", session_id: sessionId, requested_at: requestedAt });
-    }
-    // Esc로 중단하면 Stop hook이 오지 않으므로, transcript의 중단 메시지로 턴이 끝난 것을 안다.
-    if (hasInterruptedTurn(lines)) ingestHookEvent({ hook_event_name: "TranscriptInterrupted", session_id: sessionId });
+    // 일반 Esc 중단은 결과 표시를 보존한 뒤 시각으로 판정한다. 시각이 없어도 관측 이벤트는 남긴다.
+    interrupted.interruptions.filter((interruption) => interruption.kind === "turn").forEach(forwardInterruption);
   });
 }
 

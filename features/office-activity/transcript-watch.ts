@@ -52,8 +52,8 @@ export function stopFollowing(sessionId: string): void {
 // 호출이 실제로 실행되었는지. async는 백그라운드로 시작만 알린 호출이고, agentId는 그때 시작한 sub-agent의 id다.
 // rejected는 실행되지 않은 호출 중 사용자가 거절했다는 증거가 결과에 있는 경우다.
 // toolName과 toolInput은 그 호출의 도구와 입력이다. 서버가 PreToolUse hook을 놓쳐 id 없이 만든
-// 허용 대기 캐릭터를 이 호출과 이어 붙이는 데 쓴다.
-export type CallInfo = { toolName?: string; toolInput?: unknown };
+// 허용 대기 캐릭터를 이 호출과 이어 붙이는 데 쓴다. startedAt은 지난 턴의 호출을 새 대기에 붙이지 않도록 확인하는 시각이다.
+export type CallInfo = { toolName?: string; toolInput?: unknown; startedAt?: number };
 export type CallOutcome = PendingResult & { executed: boolean };
 export type PendingResult = CallInfo & { toolUseId: string; async: boolean; agentId?: string; rejected: boolean };
 // pending: 아직 판단하지 못한 결과, calls: 결과를 기다리는 호출의 도구와 입력
@@ -111,9 +111,13 @@ export function readCallOutcomes(state: ReaderState, lines: string): { state: Re
 function toolUsesOf(entry: Record<string, unknown>): Record<string, CallInfo> {
   if (entry.type !== "assistant" || !isRecord(entry.message) || !Array.isArray(entry.message.content)) return {};
   const calls: Record<string, CallInfo> = {};
+  const startedAt = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
   for (const block of entry.message.content) {
     if (isRecord(block) && block.type === "tool_use" && typeof block.id === "string") {
-      calls[block.id] = { toolName: typeof block.name === "string" ? block.name : undefined, toolInput: block.input };
+      calls[block.id] = {
+        toolName: typeof block.name === "string" ? block.name : undefined, toolInput: block.input,
+        ...(Number.isFinite(startedAt) ? { startedAt } : {}),
+      };
     }
   }
   return calls;
