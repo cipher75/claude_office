@@ -119,7 +119,8 @@ export function OfficeScene({ characters, lit, working, hadWork, connected, aler
       <div className={styles.layer}>
         {boss ? <BossBubble boss={boss} thanking={secretary?.serving === true} /> : null}
         {secretary?.serving ? (
-          <div className={cn(styles.bubble, styles.edgeRight, styles.coffeeBubble)} style={position(secretary)}>
+          // 비서는 보스 오른쪽에 서므로, 말풍선을 보스 반대쪽(오른쪽)으로 펼쳐 보스 말풍선과 겹치지 않게 한다.
+          <div className={cn(styles.bubble, styles.edgeLeft, styles.coffeeBubble)} style={position(secretary)}>
             커피 드세요 ☕
           </div>
         ) : null}
