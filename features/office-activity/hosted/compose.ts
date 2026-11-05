@@ -44,6 +44,7 @@ export function composeHostedState(snapshot: HostedSnapshot): ComposedHosted {
         name: `${session.name}${suffix}`,
         // 다른 PC의 같은 이름 저장소는 다른 사무실로 보여준다.
         ...(session.project ? { project: `${session.project}${suffix}` } : {}),
+        ...(session.projectId ? { projectId: `${machine.machine}::${session.projectId}` } : {}),
       };
       order.push(id);
       if (lost) staleSessions[id] = ageSec;

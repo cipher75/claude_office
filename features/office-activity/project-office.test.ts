@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { composeHostedState } from "./hosted/compose";
+import { redactState } from "./hosted/redact";
 import { projectOffices } from "./project-office";
 import type { Character, OfficeState, Session } from "./types";
 
@@ -65,5 +67,21 @@ describe("프로젝트 사무실", () => {
     );
 
     expect(offices[0].sessionIds).toEqual(["a"]);
+  });
+});
+
+describe("호스팅 화면의 프로젝트 사무실", () => {
+  test("한 PC에서 이름만 같은 다른 저장소는 경로를 지운 뒤에도 따로 보인다", () => {
+    const local = stateOf(
+      session("a", { projectRoot: "/work/blog", project: "blog" }),
+      session("b", { projectRoot: "/work/blog", project: "blog" }),
+      session("c", { projectRoot: "/other/blog", project: "blog" })
+    );
+    const hosted = composeHostedState({
+      serverNow: 1_000,
+      machines: [{ machine: "mac", heartbeatSec: 20, receivedAt: 1_000, state: redactState(local) }],
+    }).state;
+
+    expect(projectOffices(hosted, shown).map((o) => o.sessionIds)).toEqual([["mac::a", "mac::b"], ["mac::c"]]);
   });
 });

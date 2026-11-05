@@ -30,9 +30,10 @@ export function projectOffices(state: OfficeState, shown: (session: Session) => 
   }));
 }
 
-// 저장소 경로를 모르면(git 저장소가 아니거나 호스팅 화면) 저장소 이름, 그마저 없으면 폴더 이름으로 묶는다.
+// 로컬은 저장소 경로, 호스팅은 경로 대신 받은 구분값으로 묶는다. 둘 다 없으면(git 저장소가 아님)
+// 저장소 이름, 그마저 없으면 폴더 이름으로 묶는다.
 function projectKey(session: Session): string {
-  return session.projectRoot ?? session.project ?? session.name;
+  return session.projectRoot ?? session.projectId ?? session.project ?? session.name;
 }
 
 // 세션이 여럿이면 캐릭터 말풍선과 게시판 제목에 같은 번호를 붙여 어느 세션의 일인지 알아보게 한다.
