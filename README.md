@@ -19,11 +19,27 @@ bun dev
 
 [http://localhost:3000](http://localhost:3000)에서 결과를 확인할 수 있습니다.
 
+## 사무실 화면
+
+Claude Code 세션의 tool · skill · sub-agent 호출을 사무실 속 캐릭터로 보여줍니다.
+
+1. 이 프로젝트에서 사무실 서버를 켭니다.
+
+   ```bash
+   bun run office
+   ```
+
+2. 보고 싶은 Claude Code 세션에서 `/office`를 실행합니다. 연결을 끊으려면 `/office close`를 실행합니다.
+3. http://127.0.0.1:4747 을 엽니다. 같은 저장소에서 연 세션은 워크트리가 달라도 한 사무실에 함께 보입니다.
+
+hook은 [.claude/settings.json](.claude/settings.json)에 있으며 4747번 포트로 이벤트를 보냅니다. 그래서 `bun dev`(3000번)로 띄운 개발 서버에는 실제 세션의 이벤트가 오지 않습니다.
+
 ## 스크립트
 
 | 명령어 | 설명 |
 |---|---|
-| `bun dev` | 개발 서버 실행 |
+| `bun dev` | 개발 서버 실행 (http://localhost:3000) |
+| `bun run office` | 사무실 서버 실행 (http://127.0.0.1:4747, hook이 이벤트를 보내는 주소) |
 | `bun run build` | 프로덕션 빌드 |
 | `bun start` | 프로덕션 서버 실행 |
 | `bun run lint` | ESLint 실행 |
