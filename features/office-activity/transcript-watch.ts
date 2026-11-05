@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, statSync, unwatchFile, watchFile, type Stats } from "node:fs";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 
 // Claude Code는 허용 거절처럼 hook으로 알려 주지 않는 일을 세션 transcript에만 기록한다.
 // 이 PC의 transcript 파일에 새로 붙는 줄을 지켜보며 읽는 쪽에 넘기고, 호출의 실행 여부를 읽는 함수도 제공한다.
@@ -6,7 +6,7 @@ import { closeSync, openSync, readSync, statSync, unwatchFile, watchFile, type S
 const POLL_MS = 500;
 const NEWLINE = 0x0a;
 
-type Watch = { sessionId: string; offset: number; rest: Buffer; listener: (curr: Stats) => void };
+type Watch = { sessionId: string; offset: number; rest: Buffer; timer: ReturnType<typeof setInterval> };
 type TranscriptWatchGlobal = typeof globalThis & {
   __officeTranscriptWatches?: Map<string, Watch>;
 };
@@ -22,29 +22,32 @@ export function followTranscript(sessionId: string, path: string, onLines: (line
   const all = watches();
   if (all.has(path)) return;
 
-  const watch: Watch = { sessionId, offset: sizeOf(path), rest: Buffer.alloc(0), listener: () => {} };
-  watch.listener = (curr) => {
-    if (curr.size < watch.offset) {
-      watch.offset = curr.size;
+  // fs.watchFile은 등록 뒤 비동기로 찍은 첫 크기와 비교하므로, 그 사이에 붙은 줄은 다음 기록이 올 때까지 읽지 않는다.
+  // 마지막 기록이 Esc 중단이면 다음 기록이 없어 끝내 읽지 못하므로, 읽은 위치와 직접 비교한다.
+  const check = () => {
+    const size = sizeOf(path);
+    if (size < watch.offset) {
+      watch.offset = size;
       watch.rest = Buffer.alloc(0);
       return;
     }
-    if (curr.size === watch.offset) return;
-    const chunk = Buffer.concat([watch.rest, readRange(path, watch.offset, curr.size)]);
-    watch.offset = curr.size;
+    if (size === watch.offset) return;
+    const chunk = Buffer.concat([watch.rest, readRange(path, watch.offset, size)]);
+    watch.offset = size;
     const end = chunk.lastIndexOf(NEWLINE);
     watch.rest = chunk.subarray(end + 1);
     if (end >= 0) onLines(chunk.subarray(0, end).toString("utf8"));
   };
+  const watch: Watch = { sessionId, offset: sizeOf(path), rest: Buffer.alloc(0), timer: setInterval(check, POLL_MS) };
+  watch.timer.unref?.();
   all.set(path, watch);
-  watchFile(path, { interval: POLL_MS }, watch.listener);
 }
 
 export function stopFollowing(sessionId: string): void {
   const all = watches();
   for (const [path, watch] of all) {
     if (watch.sessionId !== sessionId) continue;
-    unwatchFile(path, watch.listener);
+    clearInterval(watch.timer);
     all.delete(path);
   }
 }
