@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { OfficeState } from "../types";
-import { composeHostedState, formatAge, nextPollDelayMs } from "./compose";
+import { composeHostedState, nextPollDelayMs } from "./compose";
 import type { HostedMachine } from "./types";
 
 const NOW = 1_000_000;
@@ -91,15 +91,6 @@ describe("소식이 끊긴 PC", () => {
     expect(staleSessions[lostId]).toBe(300);
     expect(staleSessions[liveId]).toBeUndefined();
     expect(state.sessions[lostId].characters).toHaveLength(1);
-  });
-});
-
-describe("끊긴 시간 표기", () => {
-  test("1분 미만은 초, 1시간 미만은 분, 그 뒤는 시간으로 쓴다", () => {
-    expect(formatAge(45)).toBe("45초");
-    expect(formatAge(61)).toBe("1분");
-    expect(formatAge(14 * 60 + 59)).toBe("14분");
-    expect(formatAge(3 * 3600 + 20)).toBe("3시간");
   });
 });
 

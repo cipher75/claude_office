@@ -1,5 +1,4 @@
-import { isHostedDeployment } from "@/features/office-activity/hosted/deployment";
-import { officeSnapshot, pruneAndNotify, subscribeOffice } from "@/features/office-activity/server";
+import { isHostedDeployment, officeSnapshot, pruneAndNotify, subscribeOffice } from "@/features/office-activity/server";
 
 // 화면이 구독하는 SSE 스트림: 연결하자마자 현재 상태를 보내고, 이후 바뀔 때마다 보낸다.
 export const dynamic = "force-dynamic";

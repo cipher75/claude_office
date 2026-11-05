@@ -1,9 +1,7 @@
-import type { OfficeState, Session } from "../types";
+import type { OfficeState, Session, StaleMachine } from "../types";
 import type { HostedSnapshot } from "./types";
 
 // 호스팅이 들고 있는 PC별 상태를 기존 사무실 화면이 읽는 모양(OfficeState 하나)으로 합친다.
-
-export type StaleMachine = { machine: string; ageSec: number };
 
 export type ComposedHosted = {
   state: OfficeState;
@@ -52,13 +50,6 @@ export function composeHostedState(snapshot: HostedSnapshot): ComposedHosted {
   }
 
   return { state: { sessions, order }, stale, staleSessions, instances };
-}
-
-// 1분 미만은 초, 1시간 미만은 분, 그 뒤는 시간으로 쓴다.
-export function formatAge(seconds: number): string {
-  if (seconds < 60) return `${seconds}초`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}분`;
-  return `${Math.floor(seconds / 3600)}시간`;
 }
 
 export function isBusy(state: OfficeState): boolean {

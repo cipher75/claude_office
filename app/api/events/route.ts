@@ -1,6 +1,4 @@
-import { isHostedDeployment } from "@/features/office-activity/hosted/deployment";
-import { listRawEvents } from "@/features/office-activity/raw-event-log";
-import { ingestHookEvent } from "@/features/office-activity/server";
+import { ingestHookEvent, isHostedDeployment, listRawEvents } from "@/features/office-activity/server";
 
 // 호스팅 배포에는 PC의 hook이 오지 않고, 원본 이벤트에는 명령 내용이 그대로 있다. 이 길은 내 PC의 로컬 서버에만 둔다.
 const notHere = () => new Response(null, { status: 404 });
