@@ -54,10 +54,11 @@ export function stopFollowing(sessionId: string): void {
 
 // 호출이 실제로 실행되었는지. async는 백그라운드로 시작만 알린 호출이고, agentId는 그때 시작한 sub-agent의 id다.
 // rejected는 실행되지 않은 호출 중 사용자가 거절했다는 증거가 결과에 있는 경우다.
+// failed는 실행되었지만 실패한 호출(PostToolUseFailure 기록)이다.
 // toolName과 toolInput은 그 호출의 도구와 입력이다. 서버가 PreToolUse hook을 놓쳐 id 없이 만든
 // 허용 대기 캐릭터를 이 호출과 이어 붙이는 데 쓴다. startedAt은 지난 턴의 호출을 새 대기에 붙이지 않도록 확인하는 시각이다.
 export type CallInfo = { toolName?: string; toolInput?: unknown; startedAt?: number };
-export type CallOutcome = PendingResult & { executed: boolean };
+export type CallOutcome = PendingResult & { executed: boolean; failed?: boolean };
 export type PendingResult = CallInfo & { toolUseId: string; async: boolean; agentId?: string; rejected: boolean };
 // pending: 아직 판단하지 못한 결과, calls: 결과를 기다리는 호출의 도구와 입력
 export type ReaderState = { pending: PendingResult[]; calls: Record<string, CallInfo> };
@@ -98,8 +99,8 @@ export function readCallOutcomes(state: ReaderState, lines: string): { state: Re
     }
     const recorded = postToolUseRecordOf(entry);
     if (recorded !== undefined) {
-      const done = open.find((r) => r.toolUseId === recorded);
-      if (done) outcomes.push({ ...done, executed: true });
+      const done = open.find((r) => r.toolUseId === recorded.toolUseId);
+      if (done) outcomes.push({ ...done, executed: true, ...(recorded.failed ? { failed: true } : {}) });
       open = open.filter((r) => r !== done);
       continue;
     }
@@ -150,12 +151,13 @@ function textOf(content: unknown): string {
   return content.map((block) => (isRecord(block) && typeof block.text === "string" ? block.text : "")).join("");
 }
 
-// PostToolUse, PostToolUseFailure hook의 기록이면 그 tool_use_id를 돌려준다.
-function postToolUseRecordOf(entry: Record<string, unknown>): string | undefined {
+// PostToolUse, PostToolUseFailure hook의 기록이면 그 tool_use_id와 실패 여부를 돌려준다. hookName은 "PostToolUseFailure:Bash" 꼴이다.
+function postToolUseRecordOf(entry: Record<string, unknown>): { toolUseId: string; failed: boolean } | undefined {
   const attachment = entry.attachment;
   if (!isRecord(attachment) || typeof attachment.toolUseID !== "string") return undefined;
   const hook = typeof attachment.hookName === "string" ? attachment.hookName : "";
-  return hook.startsWith("PostToolUse") ? attachment.toolUseID : undefined;
+  if (!hook.startsWith("PostToolUse")) return undefined;
+  return { toolUseId: attachment.toolUseID, failed: hook.startsWith("PostToolUseFailure") };
 }
 
 function sizeOf(path: string): number {

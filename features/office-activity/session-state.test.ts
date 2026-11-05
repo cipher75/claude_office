@@ -1150,6 +1150,18 @@ describe("task 목록", () => {
     expect(session(state).plan).toBeUndefined();
   });
 
+  test("실패한 호출은 Failure hook 뒤에 transcript의 실행 신호가 와도 목록을 바꾸지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(),
+      connect,
+      plan("p1", items),
+      plan("p2", { advance: true }, "PostToolUseFailure"),
+      { ...plan("p2", { advance: true }, "TranscriptExecuted"), failed: true }
+    );
+
+    expect(session(state).plan?.map((i) => i.status)).toEqual(["in_progress", "pending"]);
+  });
+
   test("task 목록을 쓰지 않는 세션에는 목록이 없다", () => {
     const state = apply(emptyOfficeState(), connect, {
       hook_event_name: "PostToolUse", session_id: S, tool_name: "Read", tool_use_id: "r1", tool_input: { file_path: "/a.ts" },

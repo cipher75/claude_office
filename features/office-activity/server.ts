@@ -140,6 +140,7 @@ function followTranscripts(payload: Record<string, unknown>) {
         tool_started_at: outcome.startedAt,
         tool_response: { isAsync: outcome.async, agentId: outcome.agentId },
         rejected: outcome.rejected,
+        failed: outcome.failed,
       });
     }
     // 백그라운드 sub-agent는 끝났다는 hook 이벤트가 없으므로, 끝났다는 알림을 같은 transcript에서 찾는다.

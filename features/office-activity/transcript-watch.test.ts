@@ -32,7 +32,7 @@ describe("호출의 실행 여부 읽기", () => {
   test("서버가 실패해 hook 오류로 기록되어도, PostToolUseFailure 기록이어도 실행된 것이다", () => {
     const lines = [result("t1"), postRecord("t1", "hook_non_blocking_error"), result("t2"), postRecord("t2", "hook_success", "PostToolUseFailure")];
 
-    expect(read(lines).outcomes.map((o) => [o.toolUseId, o.executed])).toEqual([["t1", true], ["t2", true]]);
+    expect(read(lines).outcomes.map((o) => [o.toolUseId, o.executed, o.failed === true])).toEqual([["t1", true, false], ["t2", true, true]]);
   });
 
   test("결과 줄 다음에 다른 종류의 줄이 오면 문구와 상관없이 실행되지 않은 것이다", () => {
