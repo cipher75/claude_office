@@ -47,6 +47,7 @@ function merge(key: string, members: Session[]): Session {
     lit: members.some((s) => s.lit),
     inTurn: members.some((s) => s.inTurn === true),
     doneCount: members.reduce((sum, s) => sum + s.doneCount, 0),
+    answered: members.some((s) => s.answered === true),
     priorUnknown: members.some((s) => s.connected && s.priorUnknown === true),
     transcriptUnreliable: members.some((s) => s.transcriptUnreliable === true),
     characters: members.flatMap((s, i) =>

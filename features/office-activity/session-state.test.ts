@@ -578,6 +578,14 @@ describe("/office close", () => {
     expect(session(state)).toMatchObject({ inTurn: false, lit: false, characters: [] });
   });
 
+  test("도구 없이 답만 하고 턴을 마치면 불이 꺼지고, 연결만 한 세션은 켜 둔다", () => {
+    const connected = apply(emptyOfficeState(), connect);
+    expect(session(connected)).toMatchObject({ lit: true });
+
+    const answered = apply(connected, { hook_event_name: "UserPromptSubmit", session_id: S }, { hook_event_name: "Stop", session_id: S });
+    expect(session(answered)).toMatchObject({ inTurn: false, doneCount: 0, lit: false });
+  });
+
   test("`!` 명령 뒤처럼 프롬프트 없이 Claude가 답을 쓰기 시작하면 턴이 진행 중이 된다", () => {
     const stop = { hook_event_name: "Stop", session_id: S };
     const request = (at: number) => ({ hook_event_name: "TranscriptModelRequest", session_id: S, requested_at: at });
@@ -1040,6 +1048,17 @@ describe("세션 마무리", () => {
     );
 
     expect(state.order).toEqual(["session-2"]);
+  });
+
+  test("도구 없이 생각하며 턴을 진행 중인 이전 세션은 내리지 않는다", () => {
+    const state = apply(
+      emptyOfficeState(),
+      connectAt(S, HERE),
+      { hook_event_name: "UserPromptSubmit", session_id: S },
+      connectAt("session-2", HERE)
+    );
+
+    expect(state.order).toEqual([S, "session-2"]);
   });
 
   test("폴더 이름만 같은 다른 저장소의 세션은 내리지 않는다", () => {

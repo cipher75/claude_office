@@ -128,7 +128,8 @@ export function applyHookEvent(
       }
       const running = runningBackgroundAgents(session);
       session = closeCalls(session, (c) => !c.agentId || !running.has(c.agentId), now);
-      session = { ...session, priorUnknown: false, inTurn: false, turnEndedAt: endedAt };
+      // 진행 중이던 턴이 끝났으면 도구를 부르지 않고 답만 했어도 일을 한 번 마친 것이다.
+      session = { ...session, priorUnknown: false, inTurn: false, turnEndedAt: endedAt, ...(session.inTurn ? { answered: true } : {}) };
       break;
     }
     case "SessionEnd":
@@ -159,13 +160,13 @@ export function applyHookEvent(
 
 // /clear는 같은 폴더에서 새 세션을 시작한다. 그때 스킬 hook이 먼저 사라져 이전 세션의 SessionEnd가
 // 오지 않으므로, 같은 전체 경로에서 새 세션이 연결되면 일하거나 허용을 기다리는 캐릭터가 없는 이전 세션을
-// 탭에서 내린다. 폴더 이름만 같은 다른 저장소의 세션은 건드리지 않는다. 같은 폴더에서 세션 둘을 함께 쓰는
+// 탭에서 내린다. 도구 없이 생각하며 턴을 진행 중인 세션도 일하는 중이므로 남긴다. 폴더 이름만 같은 다른 저장소의 세션은 건드리지 않는다. 같은 폴더에서 세션 둘을 함께 쓰는
 // 중이었다면, 내린 세션이 다음 이벤트를 보낼 때 그동안의 상태 그대로 되살린다.
 function retireReplaced(state: OfficeState, incoming: Session): OfficeState {
   if (!incoming.cwd) return state;
   const ids = state.order.filter((id) => {
     const other = state.sessions[id];
-    return id !== incoming.id && other?.cwd === incoming.cwd && !other.characters.some(isActive);
+    return id !== incoming.id && other?.cwd === incoming.cwd && !other.inTurn && !other.characters.some(isActive);
   });
   if (!ids.length) return state;
   const sessions = { ...state.sessions };
@@ -261,7 +262,8 @@ function sessionName(payload: Payload): string | undefined {
 // 그전 상태를 모르는 세션은 남은 허용 대기가 있을 수 있으므로 "모두 끝남"을 뜻하는 불 꺼짐을 보이지 않는다.
 function isLit(session: Session): boolean {
   const active = session.characters.some(isActive);
-  return session.connected && (active || session.inTurn === true || session.doneCount === 0 || session.priorUnknown === true);
+  const idleSinceConnect = session.doneCount === 0 && !session.answered;
+  return session.connected && (active || session.inTurn === true || idleSinceConnect || session.priorUnknown === true);
 }
 
 function isEnded(c: Character): boolean {

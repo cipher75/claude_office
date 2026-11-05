@@ -48,6 +48,8 @@ export type Session = {
   // 마지막으로 턴이 끝난 시각(Stop, 중단, 세션 종료). 그보다 앞서 시작한 모델 호출 기록으로 턴을 다시 켜지 않는다.
   turnEndedAt?: number;
   doneCount: number;
+  // 진행 중이던 턴을 한 번이라도 마쳤다. 도구 없이 답만 한 턴은 doneCount가 늘지 않으므로, 연결만 한 상태와 이것으로 구분한다.
+  answered?: boolean;
   // 서버가 이 세션의 시작(연결 신호)을 보지 못했다. 서버가 다시 켜지는 등으로 그전의 허용 대기를 모를 수 있다.
   // 턴이 끝나면(Stop) 남은 허용 창이 없으므로 다시 알게 된다.
   priorUnknown?: boolean;

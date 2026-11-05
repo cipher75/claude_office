@@ -143,7 +143,7 @@ export function OfficeBoard({
         characters={session?.characters ?? []}
         lit={session?.lit ?? false}
         working={session?.inTurn === true}
-        hadWork={(session?.doneCount ?? 0) > 0}
+        hadWork={(session?.doneCount ?? 0) > 0 || session?.answered === true}
         connected={Boolean(session?.connected)}
         plans={office?.plans}
         alert={
