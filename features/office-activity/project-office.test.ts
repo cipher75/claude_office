@@ -1,0 +1,69 @@
+import { describe, expect, test } from "vitest";
+
+import { projectOffices } from "./project-office";
+import type { Character, OfficeState, Session } from "./types";
+
+const call = (id: string, status: Character["status"]): Character => ({
+  id, kind: "tool", status, label: "Read", toolName: "Read", toolInput: {}, since: 0,
+});
+const session = (id: string, extra: Partial<Session> = {}): Session => ({
+  id, name: id, connected: true, lit: false, doneCount: 0, characters: [], ...extra,
+});
+const stateOf = (...sessions: Session[]): OfficeState => ({
+  sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
+  order: sessions.map((s) => s.id),
+});
+const shown = (s: Session) => s.connected || s.characters.length > 0;
+
+describe("프로젝트 사무실", () => {
+  test("같은 저장소 경로의 세션은 하나로 묶고, 이름만 같은 다른 저장소는 따로 둔다", () => {
+    const offices = projectOffices(
+      stateOf(
+        session("a", { projectRoot: "/work/blog", project: "blog" }),
+        session("b", { projectRoot: "/work/blog", project: "blog" }),
+        session("c", { projectRoot: "/other/blog", project: "blog" }),
+        session("plain")
+      ),
+      shown
+    );
+
+    expect(offices.map((o) => [o.key, o.sessionIds])).toEqual([
+      ["/work/blog", ["a", "b"]],
+      ["/other/blog", ["c"]],
+      ["plain", ["plain"]],
+    ]);
+    expect(offices[0].session.name).toBe("blog");
+  });
+
+  test("한 세션이라도 일하면 불을 켜고, 캐릭터에는 세션 번호를 붙인다", () => {
+    const [office] = projectOffices(
+      stateOf(
+        session("a", { project: "blog", characters: [call("t1", "working")], lit: true, inTurn: true }),
+        session("b", { project: "blog", characters: [call("t2", "waiting")] })
+      ),
+      shown
+    );
+
+    expect(office.session).toMatchObject({ lit: true, inTurn: true, connected: true });
+    expect(office.session.characters.map((c) => [c.id, c.label])).toEqual([["t1", "#1 Read"], ["t2", "#2 Read"]]);
+  });
+
+  test("세션이 하나면 캐릭터와 목록에 번호를 붙이지 않는다", () => {
+    const [office] = projectOffices(
+      stateOf(session("a", { characters: [call("t1", "working")], plan: [{ content: "고치기", status: "pending" }] })),
+      shown
+    );
+
+    expect(office.session.characters[0].label).toBe("Read");
+    expect(office.plans).toEqual([{ items: [{ content: "고치기", status: "pending" }] }]);
+  });
+
+  test("종료된 세션은 묶음에서 빠진다", () => {
+    const offices = projectOffices(
+      stateOf(session("a", { project: "blog" }), session("b", { project: "blog", connected: false })),
+      shown
+    );
+
+    expect(offices[0].sessionIds).toEqual(["a"]);
+  });
+});

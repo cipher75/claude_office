@@ -12,7 +12,7 @@ import { brightnessAt } from "./lighting";
 import styles from "./office-scene.module.css";
 import { SECRETARY_HEIGHT, SECRETARY_WIDTH, drawSecretary } from "./secretary-sprite";
 import { KIND_STYLE, SPRITE_HEIGHT, SPRITE_WIDTH, drawSprite, lookFor } from "./sprite";
-import type { PlanItem } from "../types";
+import type { BoardPlan } from "../project-office";
 
 type OfficeSceneProps = {
   characters: SceneCharacter[];
@@ -24,11 +24,11 @@ type OfficeSceneProps = {
   connected: boolean;
   // 장면이 지금 상태를 보여준다고 믿을 수 없을 때의 경고. 다른 안내보다 먼저, 캐릭터가 있어도 보여준다.
   alert?: string;
-  // 세션의 task 목록. 있으면 화이트보드의 차트 위에 목록을 적는다.
-  plan?: PlanItem[];
+  // 사무실에 묶인 세션들의 task 목록. 있으면 화이트보드의 차트 위에 목록을 적는다.
+  plans?: BoardPlan[];
 };
 
-export function OfficeScene({ characters, lit, working, hadWork, connected, alert, plan }: OfficeSceneProps) {
+export function OfficeScene({ characters, lit, working, hadWork, connected, alert, plans }: OfficeSceneProps) {
   const [engine] = useState(() => new SceneEngine());
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const bgRef = useRef<HTMLCanvasElement>(null);
@@ -93,7 +93,7 @@ export function OfficeScene({ characters, lit, working, hadWork, connected, aler
       <canvas ref={bgRef} className={styles.bg} width={BG_WIDTH} height={BG_HEIGHT} />
       <canvas ref={nightRef} className={cn(styles.bg, styles.night)} width={BG_WIDTH} height={BG_HEIGHT} />
       <div className={styles.layer}>
-        {plan?.length ? <TaskBoard plan={plan} /> : null}
+        {plans?.length ? <TaskBoard plans={plans} /> : null}
         <div className={cn(styles.sign, styles.signRoom)} style={{ left: "calc(263 * var(--p))", top: "calc(53 * var(--p))" }}>
           허용 대기 회의실
         </div>
@@ -146,26 +146,45 @@ export function OfficeScene({ characters, lit, working, hadWork, connected, aler
 // 화이트보드에 한 번에 적는 줄 수. 넘치면 진행 중인 항목이 보이도록 위아래를 잘라 낸다.
 const BOARD_LINES = 5;
 
-function TaskBoard({ plan }: { plan: PlanItem[] }) {
-  const current = plan.findIndex((item) => item.status !== "completed");
-  const focus = current < 0 ? plan.length - 1 : current;
-  const start = Math.max(0, Math.min(focus - 1, plan.length - BOARD_LINES));
-  const shown = plan.slice(start, start + BOARD_LINES);
-  const done = plan.filter((item) => item.status === "completed").length;
+// 목록이 여럿이면 목록마다 제목 한 줄과 진행 중인 항목 주변을 나눠 적고, 남는 줄은 앞 목록에 준다.
+// 제목조차 들어가지 않는 목록은 적지 않는다.
+function TaskBoard({ plans }: { plans: BoardPlan[] }) {
+  const titled = plans.filter((plan) => plan.title).length;
+  const fit = titled ? plans.slice(0, Math.floor(BOARD_LINES / 2)) : plans.slice(0, 1);
+  const itemLines = BOARD_LINES - fit.filter((plan) => plan.title).length;
+  const each = Math.floor(itemLines / fit.length);
+  const all = plans.flatMap((plan) => plan.items);
+  const done = all.filter((item) => item.status === "completed").length;
   return (
     <div className={styles.board}>
-      <ol aria-label={`task 목록 ${done}/${plan.length}`}>
-        {shown.map((item, i) => (
-          <li
-            key={start + i}
-            className={cn(item.status === "completed" && styles.taskDone, item.status === "in_progress" && styles.taskActive)}
-          >
-            {item.content}
-          </li>
-        ))}
-      </ol>
-      <span className={styles.boardCount}>{`${done}/${plan.length}`}</span>
+      {fit.map((plan, i) => (
+        <PlanLines key={i} plan={plan} lines={each + (i === 0 ? itemLines - each * fit.length : 0)} />
+      ))}
+      <span className={styles.boardCount}>{`${done}/${all.length}`}</span>
     </div>
+  );
+}
+
+function PlanLines({ plan, lines }: { plan: BoardPlan; lines: number }) {
+  const { items } = plan;
+  const current = items.findIndex((item) => item.status !== "completed");
+  const focus = current < 0 ? items.length - 1 : current;
+  const start = Math.max(0, Math.min(focus - (lines > 1 ? 1 : 0), items.length - lines));
+  const shown = items.slice(start, start + lines);
+  const done = items.filter((item) => item.status === "completed").length;
+  const count = `${done}/${items.length}`;
+  return (
+    <ol aria-label={plan.title ? `${plan.title} task 목록 ${count}` : `task 목록 ${count}`}>
+      {plan.title ? <li className={styles.boardTitle}>{`${plan.title} ${count}`}</li> : null}
+      {shown.map((item, i) => (
+        <li
+          key={start + i}
+          className={cn(item.status === "completed" && styles.taskDone, item.status === "in_progress" && styles.taskActive)}
+        >
+          {item.content}
+        </li>
+      ))}
+    </ol>
   );
 }
 

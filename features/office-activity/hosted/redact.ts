@@ -15,6 +15,7 @@ export function redactState(state: OfficeState): OfficeState {
     if (!session.connected && session.characters.length === 0) continue;
     const redacted: Session = { ...session, characters: session.characters.map(redactCharacter) };
     delete redacted.cwd;
+    delete redacted.projectRoot;
     // task 문구는 Claude가 요청을 풀어 쓴 글이라 프롬프트처럼 할 일과 파일 이름이 그대로 담긴다. 호스팅 게시판은 원래 차트를 그린다.
     delete redacted.plan;
     delete redacted.planCallIds;

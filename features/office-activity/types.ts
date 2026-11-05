@@ -32,6 +32,10 @@ export type Session = {
   name: string;
   // 세션을 연 폴더의 전체 경로. /clear로 같은 곳에서 시작한 새 세션을 알아보는 데만 쓰고, 호스팅으로는 보내지 않는다.
   cwd?: string;
+  // 세션을 연 폴더가 속한 저장소의 전체 경로. 워크트리에서 연 세션도 원래 저장소로 묶는 데 쓰고, 호스팅으로는 보내지 않는다.
+  projectRoot?: string;
+  // 그 저장소의 폴더 이름. 같은 프로젝트의 세션을 한 사무실 탭으로 묶어 보여줄 때 탭 이름이 된다.
+  project?: string;
   connected: boolean;
   // /office close로 연결을 끊었다. 다시 /office로 연결하기 전까지 이 세션의 이벤트를 반영하지 않는다.
   closed?: boolean;

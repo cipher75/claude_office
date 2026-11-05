@@ -37,7 +37,14 @@ export function composeHostedState(snapshot: HostedSnapshot): ComposedHosted {
       if (!session) continue;
       // 서로 다른 PC가 같은 세션 번호를 쓸 수 없도록 PC 이름을 앞에 붙인다.
       const id = `${machine.machine}::${sessionId}`;
-      sessions[id] = { ...session, id, name: several ? `${session.name} · ${machine.machine}` : session.name };
+      const suffix = several ? ` · ${machine.machine}` : "";
+      sessions[id] = {
+        ...session,
+        id,
+        name: `${session.name}${suffix}`,
+        // 다른 PC의 같은 이름 저장소는 다른 사무실로 보여준다.
+        ...(session.project ? { project: `${session.project}${suffix}` } : {}),
+      };
       order.push(id);
       if (lost) staleSessions[id] = ageSec;
     }

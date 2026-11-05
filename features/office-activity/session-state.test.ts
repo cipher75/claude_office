@@ -46,6 +46,17 @@ describe("연결", () => {
 
     expect(session(state)).toMatchObject({ name: "side-project", lit: true });
   });
+
+  test("서버가 붙인 저장소 경로로 프로젝트를 알고, 세션 이름은 연 폴더 이름 그대로 둔다", () => {
+    const state = apply(emptyOfficeState(), {
+      hook_event_name: "OfficeConnect",
+      session_id: S,
+      cwd: "/work/shop/.claude/worktrees/fix-cart",
+      project_root: "/work/shop",
+    });
+
+    expect(session(state)).toMatchObject({ name: "fix-cart", project: "shop", projectRoot: "/work/shop" });
+  });
 });
 
 describe("수행 중", () => {

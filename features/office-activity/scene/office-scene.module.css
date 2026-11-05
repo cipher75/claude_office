@@ -76,6 +76,15 @@
   content: "□ ";
 }
 
+.board li.boardTitle {
+  color: #8a8f99;
+  font-size: calc(var(--p) * 2.4);
+}
+
+.board li.boardTitle::before {
+  content: "";
+}
+
 .taskActive {
   color: #1d4fb8;
   font-weight: 700;

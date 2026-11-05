@@ -42,7 +42,7 @@ export function applyHookEvent(
     state.sessions[sessionId] ?? revived ?? newSession(sessionId, payload, eventName),
     now
   );
-  session = withCwd(withName(session, payload), payload);
+  session = withProject(withCwd(withName(session, payload), payload), payload);
   if (eventName && CARRIES_CALL_ID.has(eventName)) session = adoptOrphan(session, payload);
 
   switch (eventName) {
@@ -244,6 +244,12 @@ function withName(session: Session, payload: Payload): Session {
 function withCwd(session: Session, payload: Payload): Session {
   const cwd = text(payload.cwd);
   return cwd && cwd !== session.cwd ? { ...session, cwd } : session;
+}
+
+// project_root는 사무실 서버가 cwd로 찾아 hook 이벤트에 붙인 저장소 경로다.
+function withProject(session: Session, payload: Payload): Session {
+  const root = text(payload.project_root);
+  return root && root !== session.projectRoot ? { ...session, projectRoot: root, project: lastSegment(root) ?? root } : session;
 }
 
 function sessionName(payload: Payload): string | undefined {
