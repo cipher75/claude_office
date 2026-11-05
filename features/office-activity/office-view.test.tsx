@@ -28,6 +28,34 @@ beforeEach(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn(() => null) as never;
 });
 
+describe("프로젝트로 묶인 탭", () => {
+  const member = (id: string, name: string, extra: Partial<Session> = {}): Session => ({
+    id, name, projectRoot: "/work/blog", project: "blog", connected: true, lit: true, doneCount: 0, characters: [], ...extra,
+  });
+  const call = (id: string, status: Character["status"]): Character => ({
+    id, kind: "tool", status, label: "Read", toolName: "Read", toolInput: {}, since: 0,
+  });
+
+  test("같은 저장소의 세션들은 프로젝트 이름의 탭 하나로 묶고 상태를 합친다", () => {
+    render(<OfficeView />);
+    send({
+      ...empty("i1"),
+      sessions: {
+        a: member("a", "fix-header", { characters: [call("t1", "waiting")], doneCount: 2 }),
+        b: member("b", "add-search", { characters: [call("t2", "working")], doneCount: 1 }),
+        c: { id: "c", name: "shop", connected: true, lit: true, doneCount: 0, characters: [] },
+      },
+      order: ["a", "b", "c"],
+    });
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(2);
+    act(() => screen.getByRole("tab", { name: /blog/ }).click());
+    expect(screen.getByRole("tab", { name: /blog.*허용 대기 1.*세션 2/ })).toBeInTheDocument();
+    expect(screen.getByText("오늘 완료 3")).toBeInTheDocument();
+  });
+});
+
 describe("세션 탭", () => {
   test("새 세션이 연결되면 그 탭을 바로 보여준다", () => {
     render(<OfficeView />);
@@ -221,6 +249,28 @@ describe("게시판의 task 목록", () => {
     expect(list).toHaveTextContent("찾기");
     expect(screen.getByText("찾기").className).toMatch(/taskDone/);
     expect(screen.getByText("고치기").className).not.toMatch(/taskDone/);
+  });
+
+  test("같은 프로젝트의 세션 목록은 세션 번호 제목을 달아 함께 적는다", () => {
+    render(<OfficeView />);
+    const member = (id: string, name: string, plan: Session["plan"]): Session => ({
+      id, name, projectRoot: "/work/blog", project: "blog", connected: true, lit: true, doneCount: 0, characters: [], plan,
+    });
+    send({
+      ...empty("i1"),
+      sessions: {
+        a: member("a", "fix-header", [{ content: "헤더 고치기", status: "completed" }]),
+        b: member("b", "add-search", [{ content: "검색 붙이기", status: "in_progress" }]),
+      },
+      order: ["a", "b"],
+    });
+
+    // 끝나지 않은 목록을 먼저 적는다.
+    const lists = screen.getAllByRole("list", { name: /task 목록/ });
+    expect(lists.map((list) => list.getAttribute("aria-label"))).toEqual([
+      "#2 add-search task 목록 0/1",
+      "#1 fix-header task 목록 1/1",
+    ]);
   });
 
   test("목록이 없으면 게시판에 아무것도 덮지 않는다", () => {

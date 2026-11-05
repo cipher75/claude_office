@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { hostname } from "node:os";
+import { basename, dirname } from "node:path";
 
 import { relayConfigFromEnv } from "./hosted/deployment";
 import { createRelay } from "./hosted/relay";
@@ -27,10 +29,35 @@ function store() {
 export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now()): void {
   recordRawEvent(payload, now);
   const s = store();
-  s.state = applyHookEvent(s.state, payload, now);
+  s.state = applyHookEvent(s.state, withProjectRoot(payload), now);
   notify();
   rememberHooked(payload);
   followTranscripts(payload);
+}
+
+// 워크트리에서 연 세션도 원래 저장소로 묶도록, cwd가 속한 저장소의 경로를 찾아 이벤트에 붙인다.
+// 폴더마다 한 번만 git에 묻고 기억한다. git 저장소가 아니면 붙이지 않아 폴더 이름으로 묶인다.
+const projectRoots = new Map<string, string | null>();
+
+function withProjectRoot(payload: Record<string, unknown>): Record<string, unknown> {
+  const cwd = payload.cwd;
+  if (typeof cwd !== "string" || !cwd) return payload;
+  if (!projectRoots.has(cwd)) projectRoots.set(cwd, gitProjectRoot(cwd));
+  const root = projectRoots.get(cwd);
+  return root ? { ...payload, project_root: root } : payload;
+}
+
+function gitProjectRoot(cwd: string): string | null {
+  try {
+    const common = execFileSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+      encoding: "utf8",
+      timeout: 2_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return basename(common) === ".git" ? dirname(common) : common;
+  } catch {
+    return null;
+  }
 }
 
 // transcript 형식이 바뀌었는지 스스로 확인하기 위해, Post hook을 받은 호출을 기억해 둔다.
