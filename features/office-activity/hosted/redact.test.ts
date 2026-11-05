@@ -152,6 +152,7 @@ describe("호스팅으로 보내지 않는 세션 정보", () => {
     expect(redacted.sessions.s1).not.toHaveProperty("cwd");
     expect(redacted.sessions.s1).not.toHaveProperty("projectRoot");
     expect(redacted.sessions.s1.project).toBe("side-project");
+    expect(redacted.sessions.s1.projectId).toMatch(/^[0-9a-f]{8}$/);
     expect(redacted).not.toHaveProperty("retired");
     expect(state.sessions.s1.cwd).toBe("/home/me/private-client/side-project");
   });

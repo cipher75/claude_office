@@ -36,6 +36,8 @@ export type Session = {
   projectRoot?: string;
   // 그 저장소의 폴더 이름. 같은 프로젝트의 세션을 한 사무실 탭으로 묶어 보여줄 때 탭 이름이 된다.
   project?: string;
+  // 호스팅으로 보낼 때 전체 경로 대신 붙이는 저장소 구분값. 경로를 되돌릴 수 없는 짧은 해시다.
+  projectId?: string;
   connected: boolean;
   // /office close로 연결을 끊었다. 다시 /office로 연결하기 전까지 이 세션의 이벤트를 반영하지 않는다.
   closed?: boolean;

@@ -15,6 +15,8 @@ export function redactState(state: OfficeState): OfficeState {
     if (!session.connected && session.characters.length === 0) continue;
     const redacted: Session = { ...session, characters: session.characters.map(redactCharacter) };
     delete redacted.cwd;
+    // 이름이 같은 다른 저장소가 호스팅에서 한 사무실로 합쳐지지 않도록, 경로 대신 구분값만 보낸다.
+    if (session.projectRoot) redacted.projectId = shortHash(session.projectRoot);
     delete redacted.projectRoot;
     // task 문구는 Claude가 요청을 풀어 쓴 글이라 프롬프트처럼 할 일과 파일 이름이 그대로 담긴다. 호스팅 게시판은 원래 차트를 그린다.
     delete redacted.plan;
@@ -59,6 +61,13 @@ function text(value: unknown): string | undefined {
 
 function lastSegment(path: string | undefined): string | undefined {
   return path?.split(/[\\/]/).filter(Boolean).pop();
+}
+
+// FNV-1a 32비트. 같은 경로끼리 같은 값이면 충분하고, 값에서 경로를 알아낼 수 없다.
+function shortHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 0x01000193);
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function truncate(value: string): string {
