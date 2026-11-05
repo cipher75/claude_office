@@ -71,6 +71,9 @@ export type PlanItem = {
   status: PlanItemStatus;
 };
 
+// 소식이 끊긴 PC와 끊긴 시간(초). 호스팅 화면이 만들고, 공통 사무실 화면이 안내로 보여준다.
+export type StaleMachine = { machine: string; ageSec: number };
+
 export type OfficeState = {
   sessions: Record<string, Session>;
   order: string[];

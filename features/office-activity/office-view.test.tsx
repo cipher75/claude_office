@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { OfficeView } from "./office-view";
+import { OfficeView, formatAge } from "./office-view";
 import type { Character, OfficeState, Session } from "./types";
 
 // 테스트가 서버 대신 연결을 열고, 끊고, 상태를 보낼 수 있는 EventSource.
@@ -278,5 +278,14 @@ describe("게시판의 task 목록", () => {
     send(session());
 
     expect(screen.queryByRole("list", { name: /task 목록/ })).toBeNull();
+  });
+});
+
+describe("끊긴 시간 표기", () => {
+  test("1분 미만은 초, 1시간 미만은 분, 그 뒤는 시간으로 쓴다", () => {
+    expect(formatAge(45)).toBe("45초");
+    expect(formatAge(61)).toBe("1분");
+    expect(formatAge(14 * 60 + 59)).toBe("14분");
+    expect(formatAge(3 * 3600 + 20)).toBe("3시간");
   });
 });

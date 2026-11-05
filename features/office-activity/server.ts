@@ -13,6 +13,10 @@ import { emptyReaderState, followTranscript, readCallOutcomes, stopFollowing } f
 import type { OfficeState } from "./types";
 
 // 서버 전용 진입점: hook 이벤트를 받아 사무실 상태를 만들고, 화면에 알린다.
+// API 라우트와 instrumentation은 이 파일로만 기능을 가져간다.
+export { isHostedDeployment } from "./hosted/deployment";
+export { hostedHandlersFromEnv } from "./hosted/server";
+export { listRawEvents } from "./raw-event-log";
 
 type Listener = (state: OfficeState) => void;
 type OfficeStoreGlobal = typeof globalThis & {

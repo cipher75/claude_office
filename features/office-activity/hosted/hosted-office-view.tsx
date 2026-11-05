@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 
 import { OfficeBoard, type Link } from "../office-view";
 import { emptyOfficeState } from "../session-state";
-import type { OfficeState } from "../types";
-import { composeHostedState, isBusy, nextPollDelayMs, type StaleMachine } from "./compose";
+import type { OfficeState, StaleMachine } from "../types";
+import { composeHostedState, isBusy, nextPollDelayMs } from "./compose";
 import type { HostedSnapshot } from "./types";
 
 // 호스팅 화면: 기기에서 보기 토큰을 한 번 넣으면, 호스팅에 올라온 PC들의 상태를 가져와 사무실로 보여준다. 보기 전용이다.

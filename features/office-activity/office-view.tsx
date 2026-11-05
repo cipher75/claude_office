@@ -7,12 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import { formatAge, type StaleMachine } from "./hosted/compose";
 import { OfficeScene } from "./scene/office-scene";
 import { KIND_STYLE, SPRITE_HEIGHT, SPRITE_WIDTH, drawSprite, lookFor } from "./scene/sprite";
 import { projectOffices } from "./project-office";
 import { emptyOfficeState } from "./session-state";
-import type { CharacterKind, OfficeState, Session } from "./types";
+import type { CharacterKind, OfficeState, Session, StaleMachine } from "./types";
 
 // 사무실 화면: 서버가 보내는 상태를 구독해 프로젝트마다 사무실을 보여준다. 화면은 보기 전용이다.
 export function OfficeView() {
@@ -170,6 +169,13 @@ export function OfficeBoard({
       )}
     </div>
   );
+}
+
+// 1분 미만은 초, 1시간 미만은 분, 그 뒤는 시간으로 쓴다.
+export function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}초`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}분`;
+  return `${Math.floor(seconds / 3600)}시간`;
 }
 
 // connecting: 처음 연결하는 중, open: 연결됨, lost: 끊김(스스로 다시 연결을 시도한다)
