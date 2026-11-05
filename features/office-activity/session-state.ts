@@ -95,7 +95,8 @@ export function applyHookEvent(
     case "PostToolUse":
     case "PostToolUseFailure":
     case "TranscriptExecuted":
-      if (eventName !== "PostToolUseFailure") session = withPlanCall(session, payload);
+      // 실패한 호출은 목록을 바꾸지 못했다. transcript로 온 실행 신호도 실패 기록이면 반영하지 않는다.
+      if (eventName !== "PostToolUseFailure" && payload.failed !== true) session = withPlanCall(session, payload);
       // 백그라운드로 시작한 sub-agent는 응답이 시작만 알린다. 끝났다는 hook 이벤트는 오지 않으므로
       // 캐릭터를 남겨 두고, 서버가 transcript에서 찾은 TranscriptTaskFinished에서 정리한다.
       if (isAsyncLaunch(payload)) session = markBackground(session, payload);
