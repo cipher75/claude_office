@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { codexCodeCall, codexCodeRejections, type CodexCodeCall, type CodexRejection } from "./codex-rejections";
+import { createCodexCodeReader } from "./codex-code-results";
+import type { CodexCodeCall, CodexRejection } from "./codex-rejections";
 
 const EVENTS = new Set([
   "OfficeConnect", "OfficeDisconnect", "UserPromptSubmit", "PreToolUse",
@@ -23,21 +24,13 @@ export function readCodexTranscript(path: unknown): { reviewer?: string; outcome
   if (typeof path !== "string" || !path) return result;
   let content: string;
   try { content = readFileSync(path, "utf8"); } catch { return result; }
-  const codeCalls = new Map<string, CodexCodeCall>();
+  const code = createCodexCodeReader();
   for (const line of content.split("\n").slice(0, -1)) {
     let row;
     try { row = JSON.parse(line); } catch { continue; }
     const payload = row?.payload;
     if (row?.type === "response_item" && payload && typeof payload === "object") {
-      const call = codexCodeCall(payload);
-      if (call) codeCalls.set(call.callId, call);
-      const owner = codeCalls.get(payload.call_id);
-      const metadata = payload.internal_chat_message_metadata_passthrough;
-      if (owner && payload.type === "custom_tool_call_output" && metadata?.turn_id === owner.turnId &&
-        typeof metadata.create_time === "number" && Number.isFinite(metadata.create_time) && metadata.create_time * 1000 >= owner.startedAt) {
-        owner.completedAt = metadata.create_time * 1000;
-      }
-      result.rejections.push(...codexCodeRejections(payload, owner));
+      code.read(payload);
     }
     if (row?.type === "turn_context" && typeof payload?.approvals_reviewer === "string") result.reviewer = payload.approvals_reviewer;
     if (row?.type !== "event_msg") continue;
@@ -56,6 +49,7 @@ export function readCodexTranscript(path: unknown): { reviewer?: string; outcome
     }
     result.outcomes.push(outcome);
   }
-  result.codeCalls = [...codeCalls.values()];
+  result.codeCalls = [...code.calls.values()];
+  result.rejections = code.rejections;
   return result;
 }
