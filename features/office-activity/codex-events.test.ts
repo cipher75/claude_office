@@ -312,6 +312,135 @@ describe("Codex hook 수집", () => {
     expect(h.session()).toMatchObject({ characters: [{ status: "approved" }], doneCount: 1 });
   });
 
+  test.each([false, true])("실제 코드 모드 거절 형식으로 대기를 정리한다 (PreToolUse 유실 %s)", (missedPre) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    h.send("OfficeConnect");
+    if (!missedPre) h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", { turn_id: "turn-1", tool_name: "Bash", tool_input: call.tool_input, transcript_path });
+    const id = h.session().characters[0].id;
+    appendCodeRejection(transcript_path, h.time());
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session()).toMatchObject({ doneCount: 1, characters: [{ id, status: "denied" }] });
+  });
+
+  test("코드 모드 거절이 Stop 뒤 도착해도 완료 수를 중복 계산하지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    h.send("Stop", { turn_id: "turn-1", transcript_path });
+    appendCodeRejection(transcript_path, h.time());
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    refresh("");
+    refresh("");
+    expect(h.session()).toMatchObject({ doneCount: 1, characters: [{ status: "denied" }] });
+  });
+
+  test("동일 명령의 후보가 둘이면 코드 모드 거절을 추정해서 붙이지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PreToolUse", { ...call, tool_use_id: "call-2" });
+    h.send("PermissionRequest", { tool_name: "Bash", tool_input: call.tool_input });
+    appendCodeRejection(transcript_path, h.time());
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters).toMatchObject([{ status: "working" }, { status: "waiting" }]);
+  });
+
+  test("반영한 바깥 호출의 거절 기록을 나중 대기에 재사용하지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendCodeRejection(transcript_path, h.time() + 1000);
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    refresh("");
+    h.send("PermissionRequest", { turn_id: "turn-1", tool_name: "Bash", tool_input: call.tool_input });
+    refresh("");
+    expect(h.session().characters.filter((c) => c.status === "waiting")).toHaveLength(1);
+    expect(h.session().doneCount).toBe(1);
+  });
+
+  test.each([
+    'const cmd = "pwd"; text(await tools.exec_command({cmd}));',
+    'text(await tools.exec_command({cmd:"pwd"})); text(await tools.exec_command({cmd:"ls"}));',
+    'for (let i=0;i<2;i++) text(await tools.exec_command({cmd:"pwd"}));',
+    'text(await tools.exec_command({cmd:"pwd", ...options}));',
+  ])("정확히 해석할 수 없는 코드의 거절을 다른 대기에 연결하지 않는다 · %s", (script) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), script);
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendCodeRejection(transcript_path, h.time());
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("waiting");
+  });
+
+  test("코드 호출보다 먼저 시작한 같은 명령의 대기는 거절 후보에서 제외한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendCodeCall(transcript_path, h.time() + 1);
+    appendCodeRejection(transcript_path, h.time() + 2);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("waiting");
+  });
+
+  test("거절 문구를 일반 도구 출력으로 인용한 것은 거절 증거로 쓰지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendCodeRejection(transcript_path, h.time(), "Script completed\n");
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("waiting");
+  });
+
+  test.each([
+    'await tools.exec_command({cmd:"pwd"});',
+    'const result = await tools.exec_command({cmd:"pwd"}); text(result);',
+  ])("단일 셸 호출의 실제 코드 모드 표현을 읽는다 · %s", (script) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), script);
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendCodeRejection(transcript_path, h.time());
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("denied");
+  });
+
+  test("실제 CLI의 aborted by user 기록은 거절로 바꾸지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    h.send("Interrupt", { turn_id: "turn-1", transcript_path });
+    appendFileSync(transcript_path, `${JSON.stringify({ type: "response_item", payload: {
+      type: "custom_tool_call_output", call_id: "outer-call", output: "aborted by user after 2.4s",
+      internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: h.time() / 1000 },
+    } })}\n`);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session()).toMatchObject({ doneCount: 1, characters: [{ status: "cancelled" }] });
+  });
+
 });
 
 function rollout(reviewer: string): string {
@@ -324,5 +453,23 @@ function appendOutcome(path: string, status = "declined", completedAt = Date.now
   appendFileSync(path, `${JSON.stringify({ type: "event_msg", payload: {
     type: "item_completed", turn_id: "turn-1", completed_at_ms: completedAt,
     item: { type: "CommandExecution", id: "call-1", status, command: ["/bin/zsh", "-lc", "pwd"] },
+  } })}\n`);
+}
+
+function appendCodeCall(path: string, at: number, input = 'text(await tools.exec_command({cmd:"pwd"}));') {
+  appendFileSync(path, `${JSON.stringify({ type: "response_item", payload: {
+    type: "custom_tool_call", name: "exec", call_id: "outer-call", input,
+    internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: at / 1000 },
+  } })}\n`);
+}
+
+function appendCodeRejection(path: string, at: number, header = "Script failed\nWall time 0.0 seconds\nOutput:\n") {
+  appendFileSync(path, `${JSON.stringify({ type: "response_item", payload: {
+    type: "custom_tool_call_output", call_id: "outer-call",
+    output: [
+      { type: "input_text", text: header },
+      { type: "input_text", text: 'Script error:\nexec_command failed: CreateProcess { message: "Rejected("rejected by user")" }' },
+    ],
+    internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: at / 1000 },
   } })}\n`);
 }

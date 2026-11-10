@@ -91,6 +91,26 @@ export function applyHookEvent(
     case "PermissionDenied":
       session = endUnexecuted(session, text(payload.tool_use_id), "denied", now);
       break;
+    case "CodexRejectedCall": {
+      if (session.source !== "codex" || typeof payload.wrapper_call_id !== "string" ||
+        session.codexRejectionIds?.includes(payload.wrapper_call_id) ||
+        typeof payload.started_at !== "number" || typeof payload.completed_at !== "number") return state;
+      const matches = session.characters.filter((c) => !c.agentId && !c.background &&
+        c.turnId === payload.turn_id && c.toolName === "Bash" &&
+        ["working", "waiting", "cancelled"].includes(c.status) &&
+        c.since >= (payload.started_at as number) && c.since <= (payload.completed_at as number) &&
+        codexInputMatches("Bash", payload.tool_input, c.toolInput));
+      if (matches.length !== 1) return state;
+      const target = matches[0];
+      session = {
+        ...session,
+        codexRejectionIds: [...(session.codexRejectionIds ?? []), payload.wrapper_call_id],
+        doneCount: session.doneCount + (target.status === "cancelled" ? 0 : 1),
+        characters: session.characters.map((c) => c === target ?
+          { ...c, status: "denied", endedAt: c.endedAt ?? now } : c),
+      };
+      break;
+    }
     case "CodexDeclined":
     case "CodexExecuted": {
       if (session.source !== "codex") break;
@@ -444,6 +464,7 @@ const ONLY_KNOWN_SESSIONS = new Set([
   "PermissionDenied",
   "CodexDeclined",
   "CodexExecuted",
+  "CodexRejectedCall",
   "PostToolUse",
   "PostToolUseFailure",
   "TranscriptExecuted",

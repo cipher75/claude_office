@@ -35,6 +35,8 @@ export type Character = {
 export type Session = {
   id: string;
   source?: "codex";
+  // 정확히 연결해 반영한 바깥 코드 호출의 거절 기록. 같은 기록을 다른 대기에 재사용하지 않는다.
+  codexRejectionIds?: string[];
   turnId?: string;
   name: string;
   // 세션을 연 폴더의 전체 경로. /clear로 같은 곳에서 시작한 새 세션을 알아보는 데만 쓰고, 호스팅으로는 보내지 않는다.

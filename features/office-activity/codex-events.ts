@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { codexCodeCall, codexCodeRejection, type CodexCodeCall, type CodexRejection } from "./codex-rejections";
 
 const EVENTS = new Set([
   "OfficeConnect", "OfficeDisconnect", "UserPromptSubmit", "PreToolUse",
@@ -17,15 +18,22 @@ export function codexOfficeEvent(payload: Record<string, unknown>): Record<strin
 export type CodexOutcome = { id: string; status: "declined" | "completed" | "failed"; turnId?: string; completedAt?: number; toolName?: string; toolInput?: unknown };
 
 // 완성된 JSONL 레코드만 읽는다. 기록이 늦거나 마지막 줄이 미완성이면 다음 감시 때 다시 확인한다.
-export function readCodexTranscript(path: unknown): { reviewer?: string; outcomes: CodexOutcome[] } {
-  const result: { reviewer?: string; outcomes: CodexOutcome[] } = { outcomes: [] };
+export function readCodexTranscript(path: unknown): { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[] } {
+  const result: { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[] } = { outcomes: [], rejections: [] };
   if (typeof path !== "string" || !path) return result;
   let content: string;
   try { content = readFileSync(path, "utf8"); } catch { return result; }
+  const codeCalls = new Map<string, CodexCodeCall>();
   for (const line of content.split("\n").slice(0, -1)) {
     let row;
     try { row = JSON.parse(line); } catch { continue; }
     const payload = row?.payload;
+    if (row?.type === "response_item" && payload && typeof payload === "object") {
+      const call = codexCodeCall(payload);
+      if (call) codeCalls.set(call.callId, call);
+      const rejection = codexCodeRejection(payload, codeCalls.get(payload.call_id));
+      if (rejection) result.rejections.push(rejection);
+    }
     if (row?.type === "turn_context" && typeof payload?.approvals_reviewer === "string") result.reviewer = payload.approvals_reviewer;
     if (row?.type !== "event_msg") continue;
     if (payload?.type === "thread_settings_applied" && typeof payload.thread_settings?.approvals_reviewer === "string") {
@@ -45,4 +53,3 @@ export function readCodexTranscript(path: unknown): { reviewer?: string; outcome
   }
   return result;
 }
-

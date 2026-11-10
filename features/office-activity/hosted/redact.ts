@@ -21,6 +21,7 @@ export function redactState(state: OfficeState): OfficeState {
     // task 문구는 Claude가 요청을 풀어 쓴 글이라 프롬프트처럼 할 일과 파일 이름이 그대로 담긴다. 호스팅 게시판은 원래 차트를 그린다.
     delete redacted.plan;
     delete redacted.planCallIds;
+    delete redacted.codexRejectionIds;
     sessions[id] = redacted;
   }
   // 탭에서 내린 세션은 로컬에서 되살리는 데만 쓴다.
