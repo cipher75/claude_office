@@ -374,6 +374,11 @@ describe("Codex hook 수집", () => {
     'text(await tools.exec_command({cmd:"pwd"})); text(await tools.exec_command({cmd:"ls"}));',
     'for (let i=0;i<2;i++) text(await tools.exec_command({cmd:"pwd"}));',
     'text(await tools.exec_command({cmd:"pwd", ...options}));',
+    'text(await tools.exec_command({cmd:"pwd",prefix_rule:[getRule()]}));',
+    'text(await tools.exec_command({cmd:["pwd"],prefix_rule:["pwd"]}));',
+    'text(await tools.exec_command({cmd:"pwd",[key]:["pwd"]}));',
+    'const r=await tools.exec_command({cmd:"pwd"});text(r[property]);',
+    'const r=await tools.exec_command({cmd:"pwd"});text(r.output());',
   ])("정확히 해석할 수 없는 코드의 거절을 다른 대기에 연결하지 않는다 · %s", (script) => {
     const h = harness();
     const transcript_path = rollout("user");
@@ -413,6 +418,9 @@ describe("Codex hook 수집", () => {
   test.each([
     'await tools.exec_command({cmd:"pwd"});',
     'const result = await tools.exec_command({cmd:"pwd"}); text(result);',
+    'text(await tools.exec_command({cmd:"pwd",sandbox_permissions:"require_escalated",prefix_rule:["pwd"]}));',
+    'const result = await tools.exec_command({cmd:"pwd"}); text(result.output);',
+    'const result = await tools.exec_command({cmd:"pwd",prefix_rule:["pwd"]}); text(result.output);',
   ])("단일 셸 호출의 실제 코드 모드 표현을 읽는다 · %s", (script) => {
     const h = harness();
     const transcript_path = rollout("user");
@@ -428,7 +436,7 @@ describe("Codex hook 수집", () => {
   test.each(["array", "each", "forEach", "indexed"])("allSettled의 %s 출력에서 거절된 명령만 정리한다", (output) => {
     const h = harness();
     const transcript_path = rollout("user");
-    const script = 'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:"ls"})]); ' +
+    const script = 'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd",prefix_rule:["pwd"]}), tools.exec_command({cmd:"ls"})]); ' +
       (output === "array" ? 'text(results);' : output === "each" ? 'for (const result of results) { text(result); }' :
         output === "forEach" ? 'results.forEach((result,index) => text({part:index, ...result}));' :
         'for(let i=0;i<results.length;i++) text({i,...results[i]});');
@@ -585,6 +593,30 @@ describe("Codex hook 수집", () => {
     expect(h.session().characters.every((c) => ["waiting", "working"].includes(c.status))).toBe(true);
   });
 
+  test.each([false, true])("yield 뒤 시작한 호출의 거절도 wait로 복구한다(Stop 먼저: %s)", (stopped) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), 'const r=await tools.exec_command({cmd:"pwd",prefix_rule:["pwd"]});text(r.output);');
+    h.send("OfficeConnect");
+    appendRecord(transcript_path, {
+      type: "custom_tool_call_output", call_id: "outer-call", output: [{ type: "input_text", text: "Script running with cell ID g2:1\nWall time 1 seconds\nOutput:\n" }],
+    }, h.time());
+    h.advance(100);
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    if (stopped) h.send("Stop", { turn_id: "turn-1", transcript_path });
+    appendRecord(transcript_path, { type: "function_call", name: "wait", call_id: "wait-1", arguments: '{"cell_id":"g2:1"}' }, h.time() + 1);
+    appendRecord(transcript_path, {
+      type: "function_call_output", call_id: "wait-1", output: JSON.stringify([
+        { type: "input_text", text: "Script failed\nWall time 1 seconds\nOutput:\n" },
+        { type: "input_text", text: `Script error:\n${rejectionReason}` },
+      ]),
+    }, h.time() + 2);
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    refresh(""); refresh("");
+    expect(h.session()).toMatchObject({ doneCount: 1, inTurn: !stopped, characters: [{ status: "denied" }] });
+  });
+
   test("실제 CLI의 aborted by user 기록은 거절로 바꾸지 않는다", () => {
     const h = harness();
     const transcript_path = rollout("user");
@@ -644,5 +676,11 @@ function appendSettled(path: string, at: number, results: unknown[], each = fals
       ...(each ? results : [results]).map((result) => ({ type: "input_text", text: JSON.stringify(result) })),
       ...suffix.map((text) => ({ type: "input_text", text })),
     ], internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: at / 1000 },
+  } })}\n`);
+}
+
+function appendRecord(path: string, payload: Record<string, unknown>, at: number) {
+  appendFileSync(path, `${JSON.stringify({ type: "response_item", payload: {
+    ...payload, internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: at / 1000 },
   } })}\n`);
 }

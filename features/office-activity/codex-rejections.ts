@@ -71,6 +71,8 @@ function readSequential(body: ReturnType<typeof parse>["body"]): { commands: str
         outputs++;
         expression = expression.arguments[0];
         if (expression.type === "Identifier" && bindings.has(expression.name)) continue;
+        if (expression.type === "MemberExpression" && !expression.computed && expression.object.type === "Identifier" &&
+          bindings.has(expression.object.name) && expression.property.type === "Identifier" && expression.property.name === "output") continue;
       }
     }
     if (expression?.type !== "AwaitExpression") return;
@@ -107,10 +109,10 @@ function shellCommand(node: Node): string | undefined {
     call.arguments.length !== 1 || call.arguments[0].type !== "ObjectExpression") return;
   let command: string | undefined;
   for (const property of call.arguments[0].properties) {
-    if (property.type !== "Property" || property.computed || property.method || property.kind !== "init" || property.value.type !== "Literal") return;
+    if (property.type !== "Property" || property.computed || property.method || property.kind !== "init" || !staticValue(property.value)) return;
     const key = property.key.type === "Identifier" ? property.key.name : property.key.type === "Literal" ? property.key.value : undefined;
     if (key === "cmd") {
-      if (command !== undefined || typeof property.value.value !== "string") return;
+      if (command !== undefined || property.value.type !== "Literal" || typeof property.value.value !== "string") return;
       command = property.value.value;
     }
   }
