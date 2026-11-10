@@ -73,6 +73,14 @@ function applyCodexOutcomes(id: string, transcript: ReturnType<typeof readCodexT
       completed_at: call.completedAt,
     }, now);
   }
+  for (const rejection of transcript.rejections) {
+    s.state = applyHookEvent(s.state, {
+      hook_event_name: "CodexRejectedCall", session_id: id, wrapper_call_id: rejection.callId,
+      turn_id: rejection.turnId, tool_input: { command: rejection.command },
+      started_at: rejection.startedAt, completed_at: rejection.completedAt,
+    }, now);
+  }
+
 }
 
 type CodexWatchGlobal = typeof globalThis & { __officeCodexWatchEnds?: Map<string, ReturnType<typeof setTimeout>> };
