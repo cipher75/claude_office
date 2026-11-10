@@ -93,7 +93,7 @@ function HostedBoard({ token, onRejected }: { token: string; onRejected: () => v
       link={link}
       restarted={restarted}
       onAcknowledgeRestart={acknowledgeRestart}
-      subtitle="내 PC들의 Claude Code · 데스크톱 세션의 활동을 보여줍니다. 이 기기에서는 보기만 할 수 있어요"
+      subtitle="내 PC들의 Claude · Codex 세션의 활동을 보여줍니다. 이 기기에서는 보기만 할 수 있어요"
       staleMachines={stale}
       staleSessions={staleSessions}
     />

@@ -5,6 +5,7 @@ import type {
   Session,
 } from "./types";
 import { applyPlanCall, isPlanTool } from "./task-plan";
+import { codexInputMatches } from "./codex-input";
 
 type Payload = Record<string, unknown>;
 
@@ -34,6 +35,9 @@ export function applyHookEvent(
   const revived = state.sessions[sessionId] ? undefined : state.retired?.[sessionId];
   // 이 이벤트들은 /office로 연결하지 않은 세션에서도 온다. 사무실이 알고 있는 세션의 것만 받는다.
   const known = state.sessions[sessionId] ?? revived;
+  // Codex는 실제 턴 id를 준다. 늦게 도착한 지난 턴의 종료로 새 턴을 끝내지 않는다.
+  if (known?.source === "codex" && eventName === "Stop" &&
+    (!payload.turn_id || (known.turnId && payload.turn_id !== known.turnId))) return state;
   if (eventName && ONLY_KNOWN_SESSIONS.has(eventName) && !known) return state;
   // /office close로 연결을 끊은 세션은 hook이 계속 오더라도, 다시 연결하기 전까지 아무것도 반영하지 않는다.
   if (known?.closed && eventName !== "OfficeConnect") return state;
@@ -54,7 +58,13 @@ export function applyHookEvent(
       session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, closed: true };
       break;
     case "UserPromptSubmit":
-      session = { ...session, connected: true, inTurn: true, turnActivityAt: now };
+      session = {
+        ...session,
+        connected: true,
+        inTurn: true,
+        turnActivityAt: now,
+        ...(session.source === "codex" && text(payload.turn_id) ? { turnId: text(payload.turn_id) } : {}),
+      };
       break;
     case "PreToolUse":
       if (!session.characters.some((c) => c.id === text(payload.tool_use_id))) {
@@ -62,6 +72,7 @@ export function applyHookEvent(
       }
       // 턴 시작(UserPromptSubmit)을 놓친 세션도 도구 호출을 보면 턴 중인 것을 안다.
       session = { ...session, inTurn: true, ...(!text(payload.agent_id) ? { turnActivityAt: now } : {}) };
+      if (session.source === "codex" && text(payload.turn_id)) session = { ...session, turnId: text(payload.turn_id) };
       break;
     case "UserPromptExpansion":
       session = { ...session, connected: true, characters: addSlashSkill(session.characters, payload, now) };
@@ -80,6 +91,45 @@ export function applyHookEvent(
     case "PermissionDenied":
       session = endUnexecuted(session, text(payload.tool_use_id), "denied", now);
       break;
+    case "CodexDeclined":
+    case "CodexExecuted": {
+      if (session.source !== "codex") break;
+      const id = text(payload.tool_use_id);
+      let target = session.characters.find((c) => c.id === id);
+      if (!target && payload.turn_id && payload.tool_name) {
+        const matches = session.characters.filter((c) => c.orphan && c.turnId === payload.turn_id &&
+          c.toolName === payload.tool_name && typeof payload.completed_at === "number" &&
+          Number.isFinite(payload.completed_at) && c.waitingAt !== undefined && payload.completed_at >= c.waitingAt &&
+          codexInputMatches(c.toolName, payload.tool_input, c.toolInput));
+        if (matches.length === 1) target = matches[0];
+      }
+      if (!id || !target || target.status === "approved" || target.status === "denied") break;
+      // Esc 뒤에도 백그라운드 명령이 완료될 수 있다. 중단 전 완료라는 증거가 있을 때만 턴의 중단 표시를 보정한다.
+      if (eventName === "CodexExecuted" && target.interruptedAt !== undefined &&
+        (typeof payload.completed_at !== "number" || payload.completed_at >= target.interruptedAt)) break;
+      // 실행 중인 호출은 hook과 같은 경로로 정리해, 동일 입력의 잘못 붙은 허용 대기도 바로잡는다.
+      if (eventName === "CodexExecuted" && target.status !== "cancelled") {
+        session = {
+          ...session,
+          characters: session.characters.map((c) => c === target ? {
+            ...c, id, sceneId: c.sceneId ?? c.id, orphan: false,
+          } : c),
+        };
+        session = finishCall(session, id, now);
+        break;
+      }
+      const counted = target.status === "cancelled";
+      const doneCount = session.doneCount + (counted ? 0 : 1);
+      session = {
+        ...session,
+        doneCount,
+        characters: session.characters.map((c) => c === target ? {
+          ...c, id, sceneId: c.sceneId ?? c.id, orphan: false,
+          status: eventName === "CodexDeclined" ? "denied" : "approved", endedAt: c.endedAt ?? now,
+        } : c),
+      };
+      break;
+    }
     case "TranscriptNotExecuted":
       if (!session.transcriptUnreliable) {
         session = endUnexecuted(session, text(payload.tool_use_id), payload.rejected === true ? "denied" : "cancelled", now);
@@ -128,13 +178,17 @@ export function applyHookEvent(
         endedAt = at;
       }
       const running = runningBackgroundAgents(session);
+      if (session.source === "codex" && payload.stop_reason === "interrupt") {
+        session = { ...session, characters: session.characters.map((c) =>
+          isActive(c) && (!c.agentId || !running.has(c.agentId)) ? { ...c, interruptedAt: now } : c) };
+      }
       session = closeCalls(session, (c) => !c.agentId || !running.has(c.agentId), now);
       // 진행 중이던 턴이 끝났으면 도구를 부르지 않고 답만 했어도 일을 한 번 마친 것이다.
       session = { ...session, priorUnknown: false, inTurn: false, turnEndedAt: endedAt, ...(session.inTurn ? { answered: true } : {}) };
       break;
     }
     case "SessionEnd":
-      session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, turnEndedAt: now };
+      session = { ...(session.source === "codex" ? closeCalls(session, () => true, now) : finishAll(session)), connected: false, priorUnknown: false, inTurn: false, turnEndedAt: now };
       break;
     // transcript는 주기적으로 읽어서 턴의 마지막 모델 호출 기록을 Stop보다 늦게 읽을 수 있다.
     // 마지막으로 턴이 끝난 뒤에 시작한 호출일 때만 턴이 진행 중이라고 본다.
@@ -167,7 +221,7 @@ function retireReplaced(state: OfficeState, incoming: Session): OfficeState {
   if (!incoming.cwd) return state;
   const ids = state.order.filter((id) => {
     const other = state.sessions[id];
-    return id !== incoming.id && other?.cwd === incoming.cwd && !other.inTurn && !other.characters.some(isActive);
+    return id !== incoming.id && other?.cwd === incoming.cwd && other.source === incoming.source && !other.inTurn && !other.characters.some(isActive);
   });
   if (!ids.length) return state;
   const sessions = { ...state.sessions };
@@ -229,6 +283,7 @@ export function pruneOfficeState(state: OfficeState, now: number): OfficeState {
 function newSession(id: string, payload: Payload, eventName: string | undefined): Session {
   return {
     id,
+    ...(payload.source === "codex" ? { source: "codex" as const } : {}),
     name: sessionName(payload) ?? id.slice(0, 8),
     connected: false,
     lit: false,
@@ -283,6 +338,7 @@ function startCharacter(payload: Payload, now: number): Character {
   return {
     id: text(payload.tool_use_id) ?? `${toolName}-${now}`,
     kind: kindOf(toolName),
+    ...(payload.source === "codex" ? { turnId: text(payload.turn_id) } : {}),
     status: "working",
     label: labelOf(toolName, input),
     toolName,
@@ -386,6 +442,8 @@ function withOrphan(session: Session, payload: Payload, now: number, agentId?: s
 const ONLY_KNOWN_SESSIONS = new Set([
   "PermissionRequest",
   "PermissionDenied",
+  "CodexDeclined",
+  "CodexExecuted",
   "PostToolUse",
   "PostToolUseFailure",
   "TranscriptExecuted",
@@ -416,12 +474,14 @@ function adoptOrphan(session: Session, payload: Payload): Session {
   // sub-agent 안의 호출은 허용 없이 끝나는 것도 Post hook이 오므로, 같은 sub-agent의 입력이 같은 ?에만 이어 붙인다.
   const agentId = text(payload.agent_id);
   const orphans = session.characters.filter((c) => c.orphan && c.toolName === toolName && c.agentId === agentId);
-  const sameInput = [...orphans].reverse().find((c) => stable(c.toolInput) === key);
+  const sameInput = [...orphans].reverse().find((c) => session.source === "codex"
+    ? codexInputMatches(toolName, payload.tool_input, c.toolInput)
+    : stable(c.toolInput) === key);
   const orphan = agentId ? sameInput : (sameInput ?? orphans[orphans.length - 1]);
   if (!orphan) return session;
   return {
     ...session,
-    characters: session.characters.map((c) => (c === orphan ? { ...c, id, orphan: false } : c)),
+    characters: session.characters.map((c) => (c === orphan ? { ...c, id, orphan: false, ...(session.source === "codex" ? { sceneId: c.sceneId ?? c.id } : {}) } : c)),
   };
 }
 
@@ -442,8 +502,8 @@ function closeCalls(session: Session, closing: (c: Character) => boolean, now: n
   return {
     ...session,
     characters: session.characters
-      .filter((c) => !working(c))
-      .map((c) => (waiting(c) ? { ...c, status: "cancelled", endedAt: now } : c)),
+      .filter((c) => session.source === "codex" || !working(c))
+      .map((c) => (waiting(c) || (session.source === "codex" && working(c)) ? { ...c, status: "cancelled", endedAt: now } : c)),
     doneCount: session.doneCount + count,
   };
 }

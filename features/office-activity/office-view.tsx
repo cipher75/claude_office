@@ -22,7 +22,7 @@ export function OfficeView() {
       link={link}
       restarted={restarted}
       onAcknowledgeRestart={acknowledgeRestart}
-      subtitle="이 PC에서 연결한 Claude Code · 데스크톱 세션의 활동을 보여줍니다"
+      subtitle="이 PC에서 연결한 Claude · Codex 세션의 활동을 보여줍니다"
     />
   );
 }

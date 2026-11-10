@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { hostname } from "node:os";
 import { basename, dirname } from "node:path";
 
+import { codexOfficeEvent, readCodexTranscript } from "./codex-events";
+import { codexPermissionInput } from "./codex-input";
 import { relayConfigFromEnv } from "./hosted/deployment";
 import { createRelay } from "./hosted/relay";
 import { recordRawEvent } from "./raw-event-log";
@@ -32,11 +34,75 @@ function store() {
 
 export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now()): void {
   recordRawEvent(payload, now);
+  if (payload.source === "codex") {
+    const event = codexOfficeEvent(payload);
+    if (!event) return;
+    const s = store();
+    const id = event.session_id as string;
+    // Codex hook은 프로젝트 전체에 등록된다. 명시적으로 연결한 세션만 표시한다.
+    if (event.hook_event_name !== "OfficeConnect" && !s.state.sessions[id] && !s.state.retired?.[id]) return;
+    const session = s.state.sessions[id] ?? s.state.retired?.[id];
+    if (session?.closed && event.hook_event_name !== "OfficeConnect") return;
+    if (event.hook_event_name === "PermissionRequest") {
+      event.tool_input = codexPermissionInput(event, session?.characters ?? []);
+    }
+    const transcript = readCodexTranscript(event.transcript_path);
+    applyCodexOutcomes(id, transcript, now);
+    const autoReviewed = event.hook_event_name === "PermissionRequest" && transcript.reviewer === "auto_review";
+    if (!autoReviewed) s.state = applyHookEvent(s.state, withProjectRoot(event), now);
+    followCodexTranscript(id, event);
+    notify();
+    return;
+  }
   const s = store();
   s.state = applyHookEvent(s.state, withProjectRoot(payload), now);
   notify();
   rememberHooked(payload);
   followTranscripts(payload);
+}
+
+function applyCodexOutcomes(id: string, transcript: ReturnType<typeof readCodexTranscript>, now: number) {
+  const s = store();
+  for (const call of transcript.outcomes) {
+    const session = s.state.sessions[id] ?? s.state.retired?.[id];
+    if (!session || session.closed || !session.characters.some((c) =>
+      c.id === call.id || (c.orphan && call.turnId && c.turnId === call.turnId))) continue;
+    s.state = applyHookEvent(s.state, {
+      hook_event_name: call.status === "declined" ? "CodexDeclined" : "CodexExecuted", session_id: id, tool_use_id: call.id,
+      turn_id: call.turnId, tool_name: call.toolName, tool_input: call.toolInput,
+      completed_at: call.completedAt,
+    }, now);
+  }
+}
+
+type CodexWatchGlobal = typeof globalThis & { __officeCodexWatchEnds?: Map<string, ReturnType<typeof setTimeout>> };
+const codexWatchEnds = ((globalThis as CodexWatchGlobal).__officeCodexWatchEnds ??= new Map());
+
+function followCodexTranscript(id: string, event: Record<string, unknown>) {
+  clearTimeout(codexWatchEnds.get(id));
+  codexWatchEnds.delete(id);
+  if (event.hook_event_name === "OfficeDisconnect") {
+    stopFollowing(id);
+    return;
+  }
+  const path = event.transcript_path;
+  if (typeof path === "string" && path) {
+    followTranscript(id, path, () => {
+      applyCodexOutcomes(id, readCodexTranscript(path), Date.now());
+      notify();
+    });
+    // 등록 직전 저장된 줄도 놓치지 않는다.
+    applyCodexOutcomes(id, readCodexTranscript(path), Date.now());
+  }
+  if (event.hook_event_name === "SessionEnd") {
+    // 퇴근 장면이 남아 있는 동안 늦게 저장된 거절도 보정한다.
+    const timer = setTimeout(() => {
+      stopFollowing(id);
+      codexWatchEnds.delete(id);
+    }, 8_000);
+    timer.unref?.();
+    codexWatchEnds.set(id, timer);
+  }
 }
 
 // 워크트리에서 연 세션도 원래 저장소로 묶도록, cwd가 속한 저장소의 경로를 찾아 이벤트에 붙인다.

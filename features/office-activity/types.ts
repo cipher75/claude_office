@@ -8,6 +8,9 @@ export type CharacterStatus = "working" | "waiting" | "approved" | "denied" | "c
 // 캐릭터 하나는 tool, skill, sub-agent 호출 한 건이다.
 export type Character = {
   id: string;
+  // 실제 호출 id를 복구해도 화면에서는 같은 캐릭터로 이어진다.
+  sceneId?: string;
+  turnId?: string;
   kind: CharacterKind;
   status: CharacterStatus;
   label: string;
@@ -23,12 +26,16 @@ export type Character = {
   // 백그라운드로 시작한 sub-agent의 id(시작 응답의 agentId). 그 sub-agent 안의 호출이 가진 agentId와 같다.
   launchedAgentId?: string;
   waitingAt?: number;
+  // 명시적인 Interrupt로 멈춘 시각. hook 유실로 잠정 중단된 호출과 구분한다.
+  interruptedAt?: number;
   // approved, denied, cancelled가 된 시각. 퇴근 장면을 보여줄 시간이 지나면 목록에서 정리한다.
   endedAt?: number;
 };
 
 export type Session = {
   id: string;
+  source?: "codex";
+  turnId?: string;
   name: string;
   // 세션을 연 폴더의 전체 경로. /clear로 같은 곳에서 시작한 새 세션을 알아보는 데만 쓰고, 호스팅으로는 보내지 않는다.
   cwd?: string;

@@ -502,3 +502,41 @@ describe("보스 구역", () => {
     check(20);
   });
 });
+
+describe("늦게 확인한 거절", () => {
+  test("호출 id를 복구해도 기존 직원 한 명을 거절 표정으로 바꾼다", () => {
+    const e = engine();
+    e.sync([waiting("permission-1")], true);
+    run(e, 3);
+    e.sync([{ ...work("permission-1"), status: "cancelled" }], false);
+    run(e, 0.5);
+    e.sync([{ ...denied("real-call"), sceneId: "permission-1" }], false);
+    expect(e.walkers).toHaveLength(1);
+    expect(walker(e, "permission-1")).toMatchObject({ expr: "sad", bubble: "sad" });
+  });
+
+  test("문으로 걸어가는 중에도 거절 표정을 보정하고 계속 퇴근한다", () => {
+    const e = engine();
+    e.sync([waiting("a")], true);
+    run(e, 6);
+    e.sync([{ ...work("a"), status: "cancelled" }], false);
+    run(e, 1.5);
+    e.sync([denied("a")], false);
+    expect(walker(e, "a")).toMatchObject({ expr: "sad", bubble: "sad" });
+    run(e, 15);
+    expect(e.walkers).toEqual([]);
+  });
+});
+
+test("퇴근 중 실행 완료를 확인하면 같은 직원을 허용 표정으로 보정한다", () => {
+  const e = engine();
+  e.sync([waiting("temporary")], true);
+  run(e, 6);
+  e.sync([{ ...work("temporary"), status: "cancelled" }], false);
+  run(e, 1.5);
+  e.sync([{ ...approved("actual"), sceneId: "temporary" }], false);
+  expect(e.walkers).toHaveLength(1);
+  expect(walker(e, "temporary")).toMatchObject({ expr: "happy", bubble: "glad" });
+  run(e, 15);
+  expect(e.walkers).toEqual([]);
+});

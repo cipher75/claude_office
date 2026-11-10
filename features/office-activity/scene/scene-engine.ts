@@ -8,6 +8,7 @@ import { route } from "./route";
 
 export type SceneCharacter = {
   id: string;
+  sceneId?: string;
   kind: CharacterKind;
   status: CharacterStatus;
   label: string;
@@ -181,6 +182,7 @@ export class SceneEngine {
 
   // working은 턴이 진행 중인지다. 연결만 되어 불이 켜진 세션은 일하는 중이 아니다.
   sync(characters: SceneCharacter[], serverLit: boolean, working = serverLit): void {
+    characters = characters.map((c) => c.sceneId ? { ...c, id: c.sceneId } : c);
     this.serverLit = serverLit;
     this.serverWorking = working;
     // 장면을 처음 맞출 때 이미 있던 캐릭터는 새로 들어온 것이 아니므로 제자리에 바로 세운다.
@@ -420,7 +422,15 @@ export class SceneEngine {
   private update(w: Internal, c: SceneCharacter, isNew = false) {
     w.label = c.label;
     if (c.status === "waiting" && w.phase !== "to-wait" && w.phase !== "waiting") this.goWait(w);
+    else if (c.status === "denied" && w.phase === "leaving") {
+      w.expr = "sad";
+      w.bubble = "sad";
+    }
     else if (c.status === "denied" && w.phase !== "sad" && w.phase !== "leaving") this.startSad(w);
+    else if (c.status === "approved" && w.phase === "leaving" && w.bubble === "stop") {
+      w.expr = "happy";
+      w.bubble = "glad";
+    }
     else if (c.status === "approved" && !["glad", "to-report", "reporting", "leaving"].includes(w.phase)) this.startGlad(w);
     else if (c.status === "cancelled" && w.phase !== "stop" && w.phase !== "leaving") this.startStop(w);
     else if (c.status === "working" && (isNew || w.phase === "to-wait" || w.phase === "waiting")) this.goWork(w);
