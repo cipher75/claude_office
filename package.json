@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "office": "next dev -H 127.0.0.1 -p 4747",
+    "office:codex": "node scripts/office-codex.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

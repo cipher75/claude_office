@@ -34,6 +34,23 @@ Claude Code 세션의 tool · skill · sub-agent 호출을 사무실 속 캐릭�
 
 hook은 [.claude/settings.json](.claude/settings.json)에 있으며 4747번 포트로 이벤트를 보냅니다. 그래서 `bun dev`(3000번)로 띄운 개발 서버에는 실제 세션의 이벤트가 오지 않습니다.
 
+### Codex 연결 실험
+
+Codex CLI와 ChatGPT 데스크톱 앱의 Codex 세션도 연결할 수 있습니다(Codex 0.167에서 확인). 일반 ChatGPT 대화는 hook이 없어 연결할 수 없습니다. 실제 세션에서 연결·해제, 도구 실행, 허용 요청, 턴 종료를 확인했고, sub-agent와 작업 게시판은 아직 보여주지 않습니다.
+
+- 승인 검토자가 자동 검토(auto review)인 세션의 허용 요청은 사람을 기다리지 않으므로 허용 대기로 보이지 않습니다.
+- `PostToolUse`를 받지 못해도 기록에 `completed`·`failed`가 있으면 실행된 호출로 정리합니다. 명시적인 Esc 중단 뒤의 `completed`·`failed`는 중단 전에 완료됐다는 시각이 확인될 때만 완료로 보정합니다. 이 화면의 허용됨은 실행 허용을 뜻하며, 명령 성공·실패는 원래 앱에서 확인합니다.
+- 실제 App Server 거절 시험에서는 `declined` 실행 항목이 기록 파일에 남지 않는 경우를 확인했습니다. 이 경우 거절 복구는 아직 지원하지 못합니다. 거절 항목이 기록된 호출은 Codex 기록(transcript)으로 알아내, 기록 파일을 감시해 다음 hook 없이도 거절로 정리합니다. PreToolUse를 놓친 셸 호출은 같은 턴의 명령으로 ID를 복구합니다. 턴 종료 뒤 남아 있는 퇴근 캐릭터도 거절로 보정하며, SessionEnd 뒤에는 8초 동안 추가로 감시합니다. 기록에서 명령·턴 ID·완료 시각을 얻지 못하거나 완료 시각이 허용 대기 시작보다 앞서면 ID 복구를 보류합니다. 복구 후보가 유일한지도 확인합니다. 같은 입력의 허용 요청은 기존 중복 방지 규칙에 따라 하나로 합쳐질 수 있습니다.
+
+1. `bun run office`로 서버를 켭니다.
+2. 이 저장소를 연 Codex에서 `.codex/hooks.json`의 hook을 검토하고 신뢰합니다. CLI에서는 `/hooks`, 데스크톱에서는 hook 검토 화면을 사용합니다. 설정이 반영되지 않았다면 새 세션에서 확인합니다.
+3. 연결할 Codex 세션에서 `bun run office:codex connect`를 샌드박스 밖에서 실행하도록 요청합니다. Codex 샌드박스는 127.0.0.1로 나가는 연결도 막으므로 권한 상승 승인이 한 번 필요합니다(hook은 샌드박스 밖에서 돌아 영향이 없습니다). 현재 세션의 `CODEX_THREAD_ID`를 사용하며 이후 활동이 사무실에 표시됩니다.
+4. 연결을 끊으려면 같은 세션에서 `bun run office:codex close`를 실행합니다.
+
+hook은 명령으로 JSON 입력을 받아 로컬 서버에 전달합니다. 전송 실패가 Codex의 실행·허용 결정을 막지 않도록 응답하며, 원본 이벤트는 로컬 `/api/events`에서 확인할 수 있습니다. Codex transcript는 Claude 기록 해석기에 전달하지 않습니다. 서버를 다시 켜면 연결 명령도 다시 실행해야 합니다.
+
+검증용 서버 주소는 `OFFICE_CODEX_URL=http://127.0.0.1:4749/api/events`처럼 바꿀 수 있습니다. 로컬 HTTP 주소만 허용합니다. hook 설정과 이벤트 형식의 기준은 [공식 Hooks 문서](https://learn.chatgpt.com/docs/hooks)입니다.
+
 ## 스크립트
 
 | 명령어 | 설명 |
