@@ -425,6 +425,166 @@ describe("Codex hook 수집", () => {
     expect(h.session().characters[0].status).toBe("denied");
   });
 
+  test.each(["array", "each", "forEach", "indexed"])("allSettled의 %s 출력에서 거절된 명령만 정리한다", (output) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    const script = 'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:"ls"})]); ' +
+      (output === "array" ? 'text(results);' : output === "each" ? 'for (const result of results) { text(result); }' :
+        output === "forEach" ? 'results.forEach((result,index) => text({part:index, ...result}));' :
+        'for(let i=0;i<results.length;i++) text({i,...results[i]});');
+    appendCodeCall(transcript_path, h.time(), script);
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PreToolUse", { ...call, tool_use_id: "call-2", tool_input: { command: "ls" } });
+    h.send("PermissionRequest", call);
+    const results = [
+      { status: "rejected", reason: rejectionReason },
+      { status: "fulfilled", value: { output: "ok" } },
+    ];
+    appendSettled(transcript_path, h.time(), results, output !== "array");
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    refresh(""); refresh("");
+    expect(h.session()).toMatchObject({ doneCount: 1, characters: [{ status: "denied" }, { status: "working" }] });
+  });
+
+  test("allSettled의 서로 다른 두 거절은 각각 한 번만 정리한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), 'text(await Promise.allSettled([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:"ls"})]));');
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PreToolUse", { ...call, tool_use_id: "call-2", tool_input: { command: "ls" } });
+    appendSettled(transcript_path, h.time(), [
+      { status: "rejected", reason: rejectionReason }, { status: "rejected", reason: rejectionReason },
+    ]);
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    h.send("Stop", { turn_id: "turn-1", transcript_path });
+    refresh(""); refresh("");
+    expect(h.session()).toMatchObject({ doneCount: 2, inTurn: false, characters: [{ status: "denied" }, { status: "denied" }] });
+  });
+
+  test.each([
+    'text(await tools.exec_command({cmd:"pwd"}));',
+    'const cmd = "pwd"; text(await tools.exec_command({cmd}));',
+  ])("겹쳐 실행된 코드에 속할 수 있는 대기는 다른 코드의 거절로 바꾸지 않는다 · %s", (other) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    appendCodeCall(transcript_path, h.time(), other, "other-wrapper");
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendCodeRejection(transcript_path, h.time());
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("waiting");
+  });
+
+  test("앞선 코드가 끝난 뒤 시작한 같은 명령에는 현재 코드의 거절을 연결한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time());
+    appendCodeRejection(transcript_path, h.time());
+    h.advance(100);
+    appendCodeCall(transcript_path, h.time(), 'text(await tools.exec_command({cmd:"pwd"}));', "other-wrapper");
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendCodeRejection(transcript_path, h.time(), undefined, "other-wrapper");
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("denied");
+  });
+
+  test.each([
+    { status: "rejected", reason: "command failed" },
+    { status: "fulfilled", value: rejectionReason },
+  ])("allSettled의 일반 실패나 거절 문구 출력은 거절로 바꾸지 않는다", (item) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), 'text(await Promise.allSettled([tools.exec_command({cmd:"pwd"})]));');
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendSettled(transcript_path, h.time(), [item]);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("waiting");
+  });
+
+  test.each([
+    'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"})]); text([{status:"rejected", reason:"fake"}]);',
+    'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"})]); results.reverse(); text(results);',
+    'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"})]); for (const text of results) text(text);',
+    'text(await Promise.allSettled([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:command})]));',
+    'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"})]); results.forEach((v,i)=>text({...v,status:i}));',
+    'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"})]); for(let i=1;i<results.length;i++)text(results[i]);',
+    'const results = await Promise.allSettled([tools.exec_command({cmd:"pwd"})]); results.forEach((v,i)=>{tools.exec_command({cmd:"ls"});text(v);});',
+  ])("변형한 배열이나 동적 allSettled 결과는 읽지 않는다 · %s", (script) => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), script);
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendSettled(transcript_path, h.time(), [{ status: "rejected", reason: rejectionReason }]);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("waiting");
+  });
+
+  test("다른 도구가 섞인 allSettled도 배열 위치를 유지해 셸 거절만 반영한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), 'const r=await Promise.allSettled([tools.web__run({search_query:[{q:"sample"}]}), tools.exec_command({cmd:"pwd"})]); r.forEach((v,i)=>text({part:i,...v}));');
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendSettled(transcript_path, h.time(), [
+      { status: "rejected", reason: rejectionReason }, { status: "rejected", reason: rejectionReason },
+    ], true);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session()).toMatchObject({ doneCount: 1, characters: [{ status: "denied" }] });
+  });
+
+  test("allSettled 앞뒤의 일반 출력은 결과 배열에 포함하지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), 'text(await tools.write_stdin({session_id:123,chars:""})); const r=await Promise.allSettled([tools.exec_command({cmd:"pwd"})]); r.forEach(textValue=>text(textValue)); text(await tools.exec_command({cmd:"ls"}));');
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendSettled(transcript_path, h.time(), [{ status: "rejected", reason: rejectionReason }], true, ["prefix"], ["suffix"]);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("denied");
+  });
+
+  test("다른 도구의 거절 문구를 유일한 셸 호출의 거절로 오인하지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), 'text(await Promise.allSettled([tools.web__run({search_query:[]}), tools.exec_command({cmd:"pwd"})]));');
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PermissionRequest", call);
+    appendSettled(transcript_path, h.time(), [
+      { status: "rejected", reason: rejectionReason }, { status: "fulfilled", value: {} },
+    ]);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().characters[0].status).toBe("waiting");
+  });
+
+  test("allSettled의 동일 명령 두 개를 실행 ID 없이 임의로 짝짓지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendCodeCall(transcript_path, h.time(), 'text(await Promise.allSettled([tools.exec_command({cmd:"pwd"}), tools.exec_command({cmd:"pwd"})]));');
+    h.send("OfficeConnect");
+    h.send("PreToolUse", { ...call, transcript_path });
+    h.send("PreToolUse", { ...call, tool_use_id: "call-2" });
+    h.send("PermissionRequest", call);
+    appendSettled(transcript_path, h.time(), [
+      { status: "rejected", reason: rejectionReason }, { status: "rejected", reason: rejectionReason },
+    ]);
+    follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2]("");
+    expect(h.session().doneCount).toBe(0);
+    expect(h.session().characters.every((c) => ["waiting", "working"].includes(c.status))).toBe(true);
+  });
+
   test("실제 CLI의 aborted by user 기록은 거절로 바꾸지 않는다", () => {
     const h = harness();
     const transcript_path = rollout("user");
@@ -456,20 +616,33 @@ function appendOutcome(path: string, status = "declined", completedAt = Date.now
   } })}\n`);
 }
 
-function appendCodeCall(path: string, at: number, input = 'text(await tools.exec_command({cmd:"pwd"}));') {
+function appendCodeCall(path: string, at: number, input = 'text(await tools.exec_command({cmd:"pwd"}));', id = "outer-call") {
   appendFileSync(path, `${JSON.stringify({ type: "response_item", payload: {
-    type: "custom_tool_call", name: "exec", call_id: "outer-call", input,
+    type: "custom_tool_call", name: "exec", call_id: id, input,
     internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: at / 1000 },
   } })}\n`);
 }
 
-function appendCodeRejection(path: string, at: number, header = "Script failed\nWall time 0.0 seconds\nOutput:\n") {
+function appendCodeRejection(path: string, at: number, header = "Script failed\nWall time 0.0 seconds\nOutput:\n", id = "outer-call") {
   appendFileSync(path, `${JSON.stringify({ type: "response_item", payload: {
-    type: "custom_tool_call_output", call_id: "outer-call",
+    type: "custom_tool_call_output", call_id: id,
     output: [
       { type: "input_text", text: header },
       { type: "input_text", text: 'Script error:\nexec_command failed: CreateProcess { message: "Rejected("rejected by user")" }' },
     ],
     internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: at / 1000 },
+  } })}\n`);
+}
+
+const rejectionReason = 'exec_command failed: CreateProcess { message: "Rejected("rejected by user")" }';
+function appendSettled(path: string, at: number, results: unknown[], each = false, prefix: string[] = [], suffix: string[] = []) {
+  appendFileSync(path, `${JSON.stringify({ type: "response_item", payload: {
+    type: "custom_tool_call_output", call_id: "outer-call",
+    output: [
+      { type: "input_text", text: "Script completed\nWall time 0.3 seconds\nOutput:\n" },
+      ...prefix.map((text) => ({ type: "input_text", text })),
+      ...(each ? results : [results]).map((result) => ({ type: "input_text", text: JSON.stringify(result) })),
+      ...suffix.map((text) => ({ type: "input_text", text })),
+    ], internal_chat_message_metadata_passthrough: { turn_id: "turn-1", create_time: at / 1000 },
   } })}\n`);
 }

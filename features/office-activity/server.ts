@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { basename, dirname } from "node:path";
 
 import { codexOfficeEvent, readCodexTranscript } from "./codex-events";
-import { codexPermissionInput } from "./codex-input";
+import { codexInputMatches, codexPermissionInput } from "./codex-input";
 import { relayConfigFromEnv } from "./hosted/deployment";
 import { createRelay } from "./hosted/relay";
 import { recordRawEvent } from "./raw-event-log";
@@ -74,9 +74,17 @@ function applyCodexOutcomes(id: string, transcript: ReturnType<typeof readCodexT
     }, now);
   }
   for (const rejection of transcript.rejections) {
+    const session = s.state.sessions[id] ?? s.state.retired?.[id];
+    // 같은 명령을 담은 다른 코드(또는 해석하지 못한 코드)가 겹쳤다면 소유권을 추정하지 않는다.
+    const candidates = (session?.characters ?? []).filter((c) => {
+      const owners = transcript.codeCalls.filter((call) => call.turnId === c.turnId && call.startedAt <= c.since &&
+        (call.completedAt === undefined || c.since <= call.completedAt) &&
+        (!call.commands || call.commands.some((command) => codexInputMatches("Bash", { command }, c.toolInput))));
+      return owners.length === 1 && owners[0].callId === rejection.wrapperCallId;
+    }).map((c) => c.id);
     s.state = applyHookEvent(s.state, {
       hook_event_name: "CodexRejectedCall", session_id: id, wrapper_call_id: rejection.callId,
-      turn_id: rejection.turnId, tool_input: { command: rejection.command },
+      turn_id: rejection.turnId, commands: rejection.commands, candidate_ids: candidates,
       started_at: rejection.startedAt, completed_at: rejection.completedAt,
     }, now);
   }

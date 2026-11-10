@@ -94,12 +94,14 @@ export function applyHookEvent(
     case "CodexRejectedCall": {
       if (session.source !== "codex" || typeof payload.wrapper_call_id !== "string" ||
         session.codexRejectionIds?.includes(payload.wrapper_call_id) ||
+        !Array.isArray(payload.commands) || !Array.isArray(payload.candidate_ids) ||
         typeof payload.started_at !== "number" || typeof payload.completed_at !== "number") return state;
       const matches = session.characters.filter((c) => !c.agentId && !c.background &&
         c.turnId === payload.turn_id && c.toolName === "Bash" &&
         ["working", "waiting", "cancelled"].includes(c.status) &&
         c.since >= (payload.started_at as number) && c.since <= (payload.completed_at as number) &&
-        codexInputMatches("Bash", payload.tool_input, c.toolInput));
+        (payload.candidate_ids as string[]).includes(c.id) &&
+        (payload.commands as string[]).some((command) => codexInputMatches("Bash", { command }, c.toolInput)));
       if (matches.length !== 1) return state;
       const target = matches[0];
       session = {
