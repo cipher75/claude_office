@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { codexCodeCall, codexCodeRejection, type CodexCodeCall, type CodexRejection } from "./codex-rejections";
+import { codexCodeCall, codexCodeRejections, type CodexCodeCall, type CodexRejection } from "./codex-rejections";
 
 const EVENTS = new Set([
   "OfficeConnect", "OfficeDisconnect", "UserPromptSubmit", "PreToolUse",
@@ -18,8 +18,8 @@ export function codexOfficeEvent(payload: Record<string, unknown>): Record<strin
 export type CodexOutcome = { id: string; status: "declined" | "completed" | "failed"; turnId?: string; completedAt?: number; toolName?: string; toolInput?: unknown };
 
 // 완성된 JSONL 레코드만 읽는다. 기록이 늦거나 마지막 줄이 미완성이면 다음 감시 때 다시 확인한다.
-export function readCodexTranscript(path: unknown): { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[] } {
-  const result: { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[] } = { outcomes: [], rejections: [] };
+export function readCodexTranscript(path: unknown): { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[]; codeCalls: CodexCodeCall[] } {
+  const result: { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[]; codeCalls: CodexCodeCall[] } = { outcomes: [], rejections: [], codeCalls: [] };
   if (typeof path !== "string" || !path) return result;
   let content: string;
   try { content = readFileSync(path, "utf8"); } catch { return result; }
@@ -31,8 +31,13 @@ export function readCodexTranscript(path: unknown): { reviewer?: string; outcome
     if (row?.type === "response_item" && payload && typeof payload === "object") {
       const call = codexCodeCall(payload);
       if (call) codeCalls.set(call.callId, call);
-      const rejection = codexCodeRejection(payload, codeCalls.get(payload.call_id));
-      if (rejection) result.rejections.push(rejection);
+      const owner = codeCalls.get(payload.call_id);
+      const metadata = payload.internal_chat_message_metadata_passthrough;
+      if (owner && payload.type === "custom_tool_call_output" && metadata?.turn_id === owner.turnId &&
+        typeof metadata.create_time === "number" && Number.isFinite(metadata.create_time) && metadata.create_time * 1000 >= owner.startedAt) {
+        owner.completedAt = metadata.create_time * 1000;
+      }
+      result.rejections.push(...codexCodeRejections(payload, owner));
     }
     if (row?.type === "turn_context" && typeof payload?.approvals_reviewer === "string") result.reviewer = payload.approvals_reviewer;
     if (row?.type !== "event_msg") continue;
@@ -51,5 +56,6 @@ export function readCodexTranscript(path: unknown): { reviewer?: string; outcome
     }
     result.outcomes.push(outcome);
   }
+  result.codeCalls = [...codeCalls.values()];
   return result;
 }
