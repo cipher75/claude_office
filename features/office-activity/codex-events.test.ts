@@ -169,6 +169,28 @@ describe("Codex hook 수집", () => {
     expect(h.session()).toMatchObject({ inTurn: false, lit: false, answered: true });
   });
 
+  test("Esc로 중단된 턴을 같은 루트로 자동 복구하면 다시 불을 켜고 도구와 종료를 반영한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    const line = (type: string, payload: unknown) => {
+      h.advance(10);
+      return JSON.stringify({ type, timestamp: new Date(h.time()).toISOString(), payload });
+    };
+    appendFileSync(transcript_path, line("event_msg", { type: "task_started", turn_id: "parent" }) + "\n");
+    h.send("OfficeConnect", { transcript_path });
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    refresh(line("event_msg", { type: "turn_aborted", turn_id: "parent" }));
+    expect(h.session()).toMatchObject({ inTurn: false, lit: false });
+    refresh(line("event_msg", { type: "task_started", turn_id: "recovery", root_turn_id: "parent" }));
+    expect(h.session()).toMatchObject({ inTurn: true, lit: true });
+    refresh(line("response_item", { type: "custom_tool_call", name: "exec", call_id: "c",
+      internal_chat_message_metadata_passthrough: { turn_id: "recovery" } }));
+    expect(h.session().characters).toMatchObject([{ id: "codex-transcript:c", status: "working" }]);
+    refresh(line("response_item", { type: "custom_tool_call_output", call_id: "c", output: "done" }));
+    refresh(line("event_msg", { type: "task_complete", turn_id: "recovery", root_turn_id: "parent" }));
+    expect(h.session()).toMatchObject({ inTurn: false, lit: false, characters: [] });
+  });
+
   test("이미 끝난 대화에 연결하면 과거 도구를 재생하지 않고 퇴근 상태로 표시한다", () => {
     const h = harness();
     const transcript_path = rollout("user");

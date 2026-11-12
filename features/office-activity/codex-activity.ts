@@ -21,8 +21,13 @@ export function createCodexActivityReader() {
       if (row.type === "event_msg") {
         const rootId = typeof p.root_turn_id === "string" && p.root_turn_id ? p.root_turn_id : p.turn_id;
         if (p.type === "task_started" && typeof p.turn_id === "string") {
-          if (turn?.id === rootId) {
+          if (turn && turn.id === rootId) {
             turnIds.add(p.turn_id);
+            // 중단된 턴을 같은 루트로 다시 이어 가는 경우(daemon_recovery 등)는 턴을 다시 연다.
+            if (!turn.end) continue;
+            const start = { at, turnIds: [...turnIds], event: { hook_event_name: "UserPromptSubmit", turn_id: rootId } };
+            turn = { id: rootId, start };
+            events.push(start);
             continue;
           }
           if (turn && !turn.end && calls.size > 0) {
