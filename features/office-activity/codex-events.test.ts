@@ -191,6 +191,31 @@ describe("Codex hook 수집", () => {
     expect(h.session()).toMatchObject({ inTurn: false, lit: false, characters: [] });
   });
 
+  test("중단 전에 hook을 받은 턴도 hook 없이 자동 복구되면 기록의 도구를 표시한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    const line = (type: string, payload: unknown) => {
+      h.advance(10);
+      return JSON.stringify({ type, timestamp: new Date(h.time()).toISOString(), payload });
+    };
+    appendFileSync(transcript_path, line("event_msg", { type: "task_started", turn_id: "parent" }) + "\n");
+    h.send("OfficeConnect", { transcript_path });
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    const native = { ...call, turn_id: "parent" };
+    h.send("PreToolUse", native);
+    h.send("PostToolUse", native);
+    expect(h.session()).toMatchObject({ codexActivitySource: "hooks" });
+    refresh(line("event_msg", { type: "turn_aborted", turn_id: "parent" }));
+    refresh(line("event_msg", { type: "task_started", turn_id: "recovery", root_turn_id: "parent" }));
+    expect(h.session()).toMatchObject({ inTurn: true, lit: true, codexActivitySource: "transcript" });
+    refresh(line("response_item", { type: "custom_tool_call", name: "exec", call_id: "c",
+      internal_chat_message_metadata_passthrough: { turn_id: "recovery" } }));
+    expect(h.session().characters).toMatchObject([{ id: "codex-transcript:c", status: "working" }]);
+    // 중단 전 호출의 완료 hook이 늦게 와도 복구된 실행의 기록 표시를 지우지 않는다.
+    h.send("PostToolUse", { ...native, tool_use_id: "late" });
+    expect(h.session()).toMatchObject({ codexActivitySource: "transcript", characters: [{ id: "codex-transcript:c", status: "working" }] });
+  });
+
   test("이미 끝난 대화에 연결하면 과거 도구를 재생하지 않고 퇴근 상태로 표시한다", () => {
     const h = harness();
     const transcript_path = rollout("user");
