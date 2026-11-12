@@ -49,11 +49,10 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
     if (event.hook_event_name === "OfficeConnect" && !event.transcript_path) {
       event.transcript_path = findCodexTranscript(payload.session_id as string);
     }
-    if (["PreToolUse", "PermissionRequest", "PostToolUse"].includes(event.hook_event_name as string)) {
-      // 지난 턴의 늦은 완료 hook으로 현재 기록 관찰을 끄지 않는다.
-      if (event.hook_event_name !== "PostToolUse" || !event.turn_id || !session?.turnId || event.turn_id === session.turnId) {
-        setCodexActivitySource(id, "hooks", now, event.turn_id);
-      }
+    // 시작·허용 hook만 이 실행을 hook으로 관찰한다는 증거다. 완료 hook은 중단 전 호출이 늦게 끝난 것일 수 있어
+    // (자동 복구된 턴 등) 현재 기록 관찰을 끄지 않는다.
+    if (["PreToolUse", "PermissionRequest"].includes(event.hook_event_name as string)) {
+      setCodexActivitySource(id, "hooks", now, event.turn_id);
     }
     if (event.hook_event_name === "UserPromptSubmit") {
       // 기록을 읽을 수 없더라도 방금 받은 시작 hook은 실제 활동 신호다.

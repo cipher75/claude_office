@@ -72,7 +72,9 @@ export function applyHookEvent(
       session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, closed: true };
       break;
     case "UserPromptSubmit":
-      if (session.source === "codex" && text(payload.turn_id) && payload.turn_id !== session.codexHookTurnId) {
+      // hook 관찰은 그 실행에만 유효하다. 끝난 턴을 같은 ID로 다시 이어 가면(자동 복구) 새 실행으로 본다.
+      if (session.source === "codex" && text(payload.turn_id) &&
+        (payload.turn_id !== session.codexHookTurnId || !session.inTurn)) {
         session = { ...session, codexActivitySource: payload.activity_source === "transcript" ? "transcript"
           : payload.activity_source === "hooks" ? "hooks" : "unavailable" };
       }
