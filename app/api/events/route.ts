@@ -16,7 +16,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid payload" }, { status: 400 });
   }
 
-  ingestHookEvent(payload as Record<string, unknown>);
+  const origin = new URL(request.url).searchParams.get("via") === "settings" ? "settings" : "skill";
+  ingestHookEvent(payload as Record<string, unknown>, Date.now(), origin);
   return Response.json({});
 }
 

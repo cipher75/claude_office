@@ -483,6 +483,8 @@ function withOrphan(session: Session, payload: Payload, now: number, agentId?: s
 //   나머지 hook은 /office 스킬에 걸려 연결한 세션에서만 온다.
 // - 서버가 transcript에서 읽어 만든 이벤트: 연결하지 않은 세션의 transcript에서 나왔을 수 있다.
 const ONLY_KNOWN_SESSIONS = new Set([
+  // 모르는 세션이 끝났다는 신호로 탭을 새로 만들 까닭은 없다.
+  "SessionEnd",
   "PermissionRequest",
   "PermissionDenied",
   "CodexDeclined",

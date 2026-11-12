@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { basename, dirname } from "node:path";
@@ -35,7 +36,11 @@ function store() {
   return g.__officeStore;
 }
 
-export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now()): void {
+// hook이 어디에 걸려 왔는지. "settings"는 프로젝트 설정의 hook으로, 연결하지 않은 세션에서도 온다.
+// "skill"은 /office 스킬의 hook과 다른 hook 경로로, 이 세션이 연결되어 있다는 뜻이다.
+export type HookOrigin = "skill" | "settings";
+
+export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now(), origin?: HookOrigin): void {
   recordRawEvent(payload, now);
   if (payload.source === "codex") {
     const event = codexOfficeEvent(payload);
@@ -73,10 +78,29 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
     return;
   }
   const s = store();
+  if (origin) {
+    // 대화가 요약되면 스킬 hook이 사라지므로 같은 hook을 프로젝트 설정에도 둔다. 설정 hook은 연결한 세션의 것만 받는다.
+    const id = payload.session_id;
+    if (origin === "settings" && (typeof id !== "string" || (!s.state.sessions[id] && !s.state.retired?.[id]))) return;
+    // 스킬 hook이 살아 있는 동안에는 같은 신호가 두 경로로 똑같이 온다. 한 번만 반영한다.
+    if (seenHook(payload, now)) return;
+  }
   s.state = applyHookEvent(s.state, withProjectRoot(payload), now);
   notify();
   rememberHooked(payload);
   followTranscripts(payload);
+}
+
+const SAME_HOOK_MS = 10_000;
+const recentHooks = ((globalThis as typeof globalThis & { __officeRecentHooks?: Map<string, number> })
+  .__officeRecentHooks ??= new Map<string, number>());
+
+function seenHook(payload: Record<string, unknown>, now: number): boolean {
+  for (const [key, at] of recentHooks) if (now - at > SAME_HOOK_MS) recentHooks.delete(key);
+  const key = createHash("sha1").update(JSON.stringify(payload)).digest("hex");
+  if (recentHooks.has(key)) return true;
+  recentHooks.set(key, now);
+  return false;
 }
 
 function applyCodexOutcomes(id: string, transcript: ReturnType<typeof readCodexTranscript>, now: number) {
