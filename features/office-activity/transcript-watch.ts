@@ -18,7 +18,7 @@ function watches(): Map<string, Watch> {
 }
 
 // 지켜보기 시작한 시점 이후에 붙는 완성된 줄만 넘긴다. 지난 기록은 화면과 관계없다.
-export function followTranscript(sessionId: string, path: string, onLines: (lines: string) => void): void {
+export function followTranscript(sessionId: string, path: string, onLines: (lines: string) => void, offset?: number): void {
   const all = watches();
   if (all.has(path)) return;
 
@@ -38,7 +38,7 @@ export function followTranscript(sessionId: string, path: string, onLines: (line
     watch.rest = chunk.subarray(end + 1);
     if (end >= 0) onLines(chunk.subarray(0, end).toString("utf8"));
   };
-  const watch: Watch = { sessionId, offset: sizeOf(path), rest: Buffer.alloc(0), timer: setInterval(check, POLL_MS) };
+  const watch: Watch = { sessionId, offset: offset ?? sizeOf(path), rest: Buffer.alloc(0), timer: setInterval(check, POLL_MS) };
   watch.timer.unref?.();
   all.set(path, watch);
 }

@@ -50,6 +50,20 @@ export function applyHookEvent(
   if (eventName && CARRIES_CALL_ID.has(eventName)) session = adoptOrphan(session, payload);
 
   switch (eventName) {
+    case "CodexActivitySource": {
+      if (known?.source !== "codex") return state;
+      const source = payload.activity_source;
+      if (source !== "hooks" && source !== "transcript" && source !== "unavailable") return state;
+      session = { ...session, codexActivitySource: source,
+        ...(source === "hooks" ? { codexHookTurnId: text(payload.turn_id) ?? session.turnId } : {}),
+        characters: source === "hooks" ? session.characters.filter((c) => c.activityOrigin !== "transcript") : session.characters };
+      break;
+    }
+    case "CodexTranscriptSuperseded":
+      if (known?.source !== "codex" || !text(payload.turn_id)) return state;
+      // 다음 턴으로 넘어간 사실만 확인했다. 거절이나 Esc로 단정하지 않고 이전 기록 호출만 닫는다.
+      session = closeCalls(session, (c) => c.activityOrigin === "transcript" && c.turnId === payload.turn_id, now);
+      break;
     case "OfficeConnect":
       session = { ...session, connected: true, closed: false };
       break;
@@ -58,6 +72,9 @@ export function applyHookEvent(
       session = { ...finishAll(session), connected: false, priorUnknown: false, inTurn: false, closed: true };
       break;
     case "UserPromptSubmit":
+      if (session.source === "codex" && text(payload.turn_id) && payload.turn_id !== session.codexHookTurnId) {
+        session = { ...session, codexActivitySource: payload.activity_source === "transcript" ? "transcript" : "unavailable" };
+      }
       session = {
         ...session,
         connected: true,
@@ -340,7 +357,7 @@ function sessionName(payload: Payload): string | undefined {
 // 그전 상태를 모르는 세션은 남은 허용 대기가 있을 수 있으므로 "모두 끝남"을 뜻하는 불 꺼짐을 보이지 않는다.
 function isLit(session: Session): boolean {
   const active = session.characters.some(isActive);
-  const idleSinceConnect = session.doneCount === 0 && !session.answered;
+  const idleSinceConnect = session.source !== "codex" && session.doneCount === 0 && !session.answered;
   return session.connected && (active || session.inTurn === true || idleSinceConnect || session.priorUnknown === true);
 }
 
@@ -366,6 +383,7 @@ function startCharacter(payload: Payload, now: number): Character {
     toolName,
     toolInput: input,
     since: now,
+    ...(payload.activity_origin === "transcript" ? { activityOrigin: "transcript" as const } : {}),
     ...(agentId ? { agentId } : {}),
   };
 }

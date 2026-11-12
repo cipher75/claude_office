@@ -112,6 +112,11 @@ export function OfficeBoard({
           확인해 주세요.
         </Notice>
       ) : null}
+      {session?.codexActivitySource === "unavailable" ? (
+        <Notice tone="warning">Codex에 연결했지만 활동 신호를 아직 받지 못했어요. 진행 상태와 허용 요청은 앱에서 확인해 주세요.</Notice>
+      ) : session?.codexActivitySource === "transcript" ? (
+        <Notice tone="warning">Codex 활동을 대화 기록으로 표시하고 있어요. 코드 안의 개별 도구와 허용 대기는 모두 보이지 않을 수 있으니 앱에서도 확인해 주세요.</Notice>
+      ) : null}
 
       {tabs.length > 0 ? (
         <Tabs value={selectedId} onValueChange={(value) => pick(String(value))}>
@@ -257,6 +262,8 @@ function statusText(session: Session): string {
   const working = session.characters.filter((c) => c.status === "working").length;
   if (working > 0) return `진행 중 ${working}`;
   if (session.priorUnknown) return "확인 필요";
+  if (session.codexActivitySource === "unavailable") return "활동 확인 필요";
+  if (session.inTurn) return "생각·응답 중";
   return session.lit ? "대기" : "퇴근";
 }
 

@@ -51,6 +51,8 @@ function merge(key: string, members: Session[]): Session {
     answered: members.some((s) => s.answered === true),
     priorUnknown: members.some((s) => s.connected && s.priorUnknown === true),
     transcriptUnreliable: members.some((s) => s.transcriptUnreliable === true),
+    codexActivitySource: members.some((s) => s.connected && s.codexActivitySource === "unavailable") ? "unavailable"
+      : members.some((s) => s.connected && s.codexActivitySource === "transcript") ? "transcript" : undefined,
     characters: members.flatMap((s, i) =>
       s.characters.map((c) => (members.length > 1 ? { ...c, label: `${mark(members, i)}${c.label}` } : c))
     ),

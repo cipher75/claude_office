@@ -138,6 +138,18 @@ describe("transcript 지켜보기", () => {
   const session = "watch-test";
   afterEach(() => stopFollowing(session));
 
+  test("초기 읽기와 감시 등록 사이에 붙은 줄과 미완성 UTF-8 줄도 놓치지 않는다", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "office-")), "session.jsonl");
+    const old = '{"text":"이전"}\n';
+    const next = '{"text":"생각 중"}\n';
+    writeFileSync(path, old + next.slice(0, 6));
+    const offset = Buffer.byteLength(old);
+    appendFileSync(path, next.slice(6));
+    const seen: string[] = [];
+    followTranscript(session, path, (lines) => seen.push(lines), offset);
+    await expect.poll(() => seen, { timeout: 3_000 }).toEqual([next.trim()]);
+  });
+
   test("지켜보기 시작한 뒤 붙은 완성된 줄만 넘긴다", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "office-")), "session.jsonl");
     writeFileSync(path, `${result("old")}\n${assistant}\n`);
