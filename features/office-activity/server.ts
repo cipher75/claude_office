@@ -55,7 +55,10 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
         setCodexActivitySource(id, "hooks", now, event.turn_id);
       }
     }
-    if (event.hook_event_name === "UserPromptSubmit" && activityWatches.has(id)) event.activity_source = "transcript";
+    if (event.hook_event_name === "UserPromptSubmit") {
+      // 기록을 읽을 수 없더라도 방금 받은 시작 hook은 실제 활동 신호다.
+      event.activity_source = activityWatches.has(id) ? "transcript" : "hooks";
+    }
     if (event.hook_event_name === "PermissionRequest") {
       event.tool_input = codexPermissionInput(event, session?.characters ?? []);
     }
@@ -122,9 +125,12 @@ function setCodexActivitySource(id: string, source: "hooks" | "transcript" | "un
 
 function applyCodexActivity(id: string, events: CodexActivity[]) {
   const s = store();
-  for (const { at, event } of events) {
+  for (const { at, event: recorded, turnIds } of events) {
     const session = s.state.sessions[id] ?? s.state.retired?.[id];
     if (!session || session.closed || !session.connected) return;
+    // 한 번에 여러 턴의 줄을 읽어도 각 이벤트 시점의 부모·하위 턴 관계를 사용한다.
+    const event = session.turnId && turnIds?.includes(session.turnId)
+      ? { ...recorded, turn_id: session.turnId } : recorded;
     if (event.hook_event_name === "CodexTranscriptSuperseded") {
       s.state = applyHookEvent(s.state, { ...event, session_id: id }, at);
       continue;

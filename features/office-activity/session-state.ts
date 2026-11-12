@@ -73,7 +73,8 @@ export function applyHookEvent(
       break;
     case "UserPromptSubmit":
       if (session.source === "codex" && text(payload.turn_id) && payload.turn_id !== session.codexHookTurnId) {
-        session = { ...session, codexActivitySource: payload.activity_source === "transcript" ? "transcript" : "unavailable" };
+        session = { ...session, codexActivitySource: payload.activity_source === "transcript" ? "transcript"
+          : payload.activity_source === "hooks" ? "hooks" : "unavailable" };
       }
       session = {
         ...session,

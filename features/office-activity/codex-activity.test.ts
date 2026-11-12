@@ -11,6 +11,56 @@ const call = (id = "c1", at = 2_000) => row("response_item", { type: "custom_too
 const output = (id = "c1", at = 3_000) => row("response_item", { type: "custom_tool_call_output", call_id: id, output: "Script completed\nWall time 1s\nOutput:\nprivate output" }, at);
 
 describe("Codex 기록 활동 복구", () => {
+  test("부모 종료에 root_turn_id가 없어도 연결 직후 종료 상태를 복구한다", () => {
+    const reader = createCodexActivityReader();
+    reader.read([
+      row("event_msg", { type: "task_started", turn_id: "child", root_turn_id: "parent" }),
+      row("event_msg", { type: "task_complete", turn_id: "parent" }, 2_000),
+    ].join("\n"));
+    expect(reader.snapshot().map((activity) => activity.event)).toEqual([
+      { hook_event_name: "UserPromptSubmit", turn_id: "parent" },
+      { hook_event_name: "Stop", turn_id: "parent" },
+    ]);
+  });
+
+  test.each(["task_complete", "turn_aborted"])("하위 턴 시작 뒤 부모의 %s로 종료한다", (type) => {
+    const reader = createCodexActivityReader();
+    expect(reader.read(row("event_msg", { type: "task_started", turn_id: "review-child", root_turn_id: "parent" })))
+      .toMatchObject([{ event: { hook_event_name: "UserPromptSubmit", turn_id: "parent" } }]);
+    expect(reader.read(row("event_msg", { type, turn_id: "parent", root_turn_id: "parent" }, 2_000)))
+      .toMatchObject([{ event: { hook_event_name: "Stop", turn_id: "parent" } }]);
+    expect(reader.snapshot()).toHaveLength(2);
+  });
+
+  test("부모 ID가 없는 하위 턴 도구 기록도 시작·결과를 연결한다", () => {
+    const reader = createCodexActivityReader();
+    reader.read(row("event_msg", { type: "task_started", turn_id: "child", root_turn_id: "parent" }));
+    const metadata = { turn_id: "child" };
+    expect(reader.read(row("response_item", { type: "custom_tool_call", name: "exec", call_id: "c", internal_chat_message_metadata_passthrough: metadata })))
+      .toMatchObject([{ event: { hook_event_name: "PreToolUse", turn_id: "parent" } }]);
+    expect(reader.read(row("response_item", { type: "custom_tool_call_output", call_id: "c", output: "done", internal_chat_message_metadata_passthrough: metadata })))
+      .toMatchObject([{ event: { hook_event_name: "PostToolUse", turn_id: "parent" } }]);
+  });
+
+  test("같은 부모의 하위 턴 시작으로 열린 부모 호출을 중단하지 않는다", () => {
+    const reader = createCodexActivityReader();
+    reader.read([start("parent"), call()].join("\n"));
+    expect(reader.read(row("event_msg", { type: "task_started", turn_id: "child", root_turn_id: "parent" }, 3_000))).toEqual([]);
+    expect(reader.snapshot()).toHaveLength(2);
+    expect(reader.read(row("event_msg", { type: "task_complete", turn_id: "child", root_turn_id: "parent" }, 4_000)))
+      .toMatchObject([{ event: { hook_event_name: "Stop", turn_id: "parent" } }]);
+  });
+
+  test("다른 부모 턴으로 넘어간 뒤 지난 부모의 종료와 도구 결과는 무시한다", () => {
+    const reader = createCodexActivityReader();
+    reader.read(row("event_msg", { type: "task_started", turn_id: "child", root_turn_id: "old" }));
+    reader.read(start("new", 2_000));
+    expect(reader.read(row("event_msg", { type: "task_complete", turn_id: "old", root_turn_id: "old" }, 3_000))).toEqual([]);
+    expect(reader.read(row("response_item", { type: "custom_tool_call", name: "exec", call_id: "late", internal_chat_message_metadata_passthrough: { turn_id: "child" } }, 4_000))).toEqual([]);
+    expect(reader.snapshot()).toHaveLength(1);
+    expect(reader.snapshot()[0].turnIds).not.toContain("child");
+  });
+
   test("열린 호출이 있는 채 새 턴을 읽으면 정리 신호를 먼저 보낸다", () => {
     const reader = createCodexActivityReader();
     reader.read([start(), call()].join("\n"));
