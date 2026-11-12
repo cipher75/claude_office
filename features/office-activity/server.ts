@@ -1,8 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { basename, dirname } from "node:path";
 
 import { codexOfficeEvent, readCodexTranscript } from "./codex-events";
+import { createCodexActivityReader, type CodexActivity } from "./codex-activity";
+import { findCodexTranscript } from "./codex-transcript-path";
 import { codexInputMatches, codexPermissionInput } from "./codex-input";
 import { relayConfigFromEnv } from "./hosted/deployment";
 import { createRelay } from "./hosted/relay";
@@ -43,6 +46,16 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
     if (event.hook_event_name !== "OfficeConnect" && !s.state.sessions[id] && !s.state.retired?.[id]) return;
     const session = s.state.sessions[id] ?? s.state.retired?.[id];
     if (session?.closed && event.hook_event_name !== "OfficeConnect") return;
+    if (event.hook_event_name === "OfficeConnect" && !event.transcript_path) {
+      event.transcript_path = findCodexTranscript(payload.session_id as string);
+    }
+    if (["PreToolUse", "PermissionRequest", "PostToolUse"].includes(event.hook_event_name as string)) {
+      // 지난 턴의 늦은 완료 hook으로 현재 기록 관찰을 끄지 않는다.
+      if (event.hook_event_name !== "PostToolUse" || !event.turn_id || !session?.turnId || event.turn_id === session.turnId) {
+        setCodexActivitySource(id, "hooks", now, event.turn_id);
+      }
+    }
+    if (event.hook_event_name === "UserPromptSubmit" && activityWatches.has(id)) event.activity_source = "transcript";
     if (event.hook_event_name === "PermissionRequest") {
       event.tool_input = codexPermissionInput(event, session?.characters ?? []);
     }
@@ -50,6 +63,9 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
     applyCodexOutcomes(id, transcript, now);
     const autoReviewed = event.hook_event_name === "PermissionRequest" && transcript.reviewer === "auto_review";
     if (!autoReviewed) s.state = applyHookEvent(s.state, withProjectRoot(event), now);
+    // 이미 기록된 결과가 방금 생성한 허용 대기와 연결될 수도 있다.
+    applyCodexOutcomes(id, transcript, now);
+    if (event.hook_event_name === "OfficeConnect" && !session?.codexActivitySource) setCodexActivitySource(id, "unavailable");
     followCodexTranscript(id, event);
     notify();
     return;
@@ -93,27 +109,71 @@ function applyCodexOutcomes(id: string, transcript: ReturnType<typeof readCodexT
 
 type CodexWatchGlobal = typeof globalThis & { __officeCodexWatchEnds?: Map<string, ReturnType<typeof setTimeout>> };
 const codexWatchEnds = ((globalThis as CodexWatchGlobal).__officeCodexWatchEnds ??= new Map());
+type ActivityWatch = { path: string; reader: ReturnType<typeof createCodexActivityReader> };
+const activityWatches = ((globalThis as typeof globalThis & {
+  __officeCodexActivityWatches?: Map<string, ActivityWatch>;
+}).__officeCodexActivityWatches ??= new Map<string, ActivityWatch>());
+
+function setCodexActivitySource(id: string, source: "hooks" | "transcript" | "unavailable", now = Date.now(), turnId?: unknown) {
+  const s = store();
+  s.state = applyHookEvent(s.state, { hook_event_name: "CodexActivitySource", session_id: id,
+    activity_source: source, turn_id: turnId }, now);
+}
+
+function applyCodexActivity(id: string, events: CodexActivity[]) {
+  const s = store();
+  for (const { at, event } of events) {
+    const session = s.state.sessions[id] ?? s.state.retired?.[id];
+    if (!session || session.closed || !session.connected) return;
+    if (event.hook_event_name === "CodexTranscriptSuperseded") {
+      s.state = applyHookEvent(s.state, { ...event, session_id: id }, at);
+      continue;
+    }
+    const tool = event.hook_event_name === "PreToolUse" || event.hook_event_name === "PostToolUse";
+    if (tool && session.codexActivitySource === "hooks") continue;
+    if (event.hook_event_name === "UserPromptSubmit") {
+      if (at <= (session.turnEndedAt ?? 0) || at < (session.turnActivityAt ?? 0)) continue;
+    } else if (event.turn_id !== session.turnId || at < (session.turnEndedAt ?? 0)) continue;
+    s.state = applyHookEvent(s.state, { ...event, source: "codex", session_id: id, activity_source: "transcript" }, at);
+  }
+}
 
 function followCodexTranscript(id: string, event: Record<string, unknown>) {
   clearTimeout(codexWatchEnds.get(id));
   codexWatchEnds.delete(id);
   if (event.hook_event_name === "OfficeDisconnect") {
     stopFollowing(id);
+    activityWatches.delete(id);
     return;
   }
   const path = event.transcript_path;
   if (typeof path === "string" && path) {
-    followTranscript(id, path, () => {
-      applyCodexOutcomes(id, readCodexTranscript(path), Date.now());
-      notify();
-    });
-    // 등록 직전 저장된 줄도 놓치지 않는다.
-    applyCodexOutcomes(id, readCodexTranscript(path), Date.now());
+    if (activityWatches.get(id)?.path !== path) {
+      let content: Buffer;
+      try { content = readFileSync(path); } catch { return; }
+      const offset = content.lastIndexOf(0x0a) + 1;
+      const reader = createCodexActivityReader();
+      reader.read(content.subarray(0, offset).toString("utf8"));
+      stopFollowing(id);
+      activityWatches.set(id, { path, reader });
+      const session = store().state.sessions[id] ?? store().state.retired?.[id];
+      if (session?.codexActivitySource !== "hooks") setCodexActivitySource(id, "transcript");
+      applyCodexActivity(id, reader.snapshot());
+      followTranscript(id, path, (lines) => {
+        applyCodexActivity(id, reader.read(lines));
+        const current = store().state.sessions[id] ?? store().state.retired?.[id];
+        if (current?.characters.some((c) => c.activityOrigin !== "transcript")) {
+          applyCodexOutcomes(id, readCodexTranscript(path), Date.now());
+        }
+        notify();
+      }, offset);
+    }
   }
   if (event.hook_event_name === "SessionEnd") {
     // 퇴근 장면이 남아 있는 동안 늦게 저장된 거절도 보정한다.
     const timer = setTimeout(() => {
       stopFollowing(id);
+      activityWatches.delete(id);
       codexWatchEnds.delete(id);
     }, 8_000);
     timer.unref?.();

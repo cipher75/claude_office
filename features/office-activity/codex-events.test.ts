@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import { ingestHookEvent, officeSnapshot } from "./server";
 
 const follow = vi.hoisted(() => vi.fn());
+vi.mock("./codex-transcript-path", () => ({ findCodexTranscript: () => undefined }));
 vi.mock("./transcript-watch", async (original) => ({
   ...await original<typeof import("./transcript-watch")>(),
   followTranscript: follow,
@@ -26,7 +27,143 @@ function harness() {
 
 const call = { turn_id: "turn-1", tool_use_id: "call-1", tool_name: "Bash", tool_input: { command: "pwd" } };
 
+function recordedSession(reviewer = "user") {
+  const h = harness();
+  const transcript_path = rollout(reviewer);
+  h.send("OfficeConnect", { transcript_path });
+  const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+  return { ...h, transcript_path, read(type: string, payload: unknown) {
+    h.advance(1);
+    refresh(JSON.stringify({ type, timestamp: new Date(h.time()).toISOString(), payload }));
+  } };
+}
+
 describe("Codex hook 수집", () => {
+  test("종료 없이 새 턴으로 넘어가면 이전 기록 호출만 중단으로 정리한다", () => {
+    const h = recordedSession();
+    h.read("event_msg", { type: "task_started", turn_id: "old" });
+    h.read("response_item", { type: "custom_tool_call", name: "exec", call_id: "old-call" });
+    h.read("event_msg", { type: "task_started", turn_id: "new" });
+    h.read("response_item", { type: "custom_tool_call", name: "exec", call_id: "new-call" });
+    expect(h.session()).toMatchObject({ inTurn: true, turnId: "new", doneCount: 1, characters: [
+      { id: "codex-transcript:old-call", status: "cancelled" },
+      { id: "codex-transcript:new-call", status: "working" },
+    ] });
+    h.read("event_msg", { type: "task_complete", turn_id: "old" });
+    expect(h.session().characters[1].status).toBe("working");
+  });
+
+  test("hook 턴 뒤 원격 턴에서는 기록 캐릭터를 다시 표시한다", () => {
+    const h = recordedSession();
+    h.read("event_msg", { type: "task_started", turn_id: call.turn_id });
+    h.send("PreToolUse", call);
+    h.send("PostToolUse", call);
+    h.send("Stop", { turn_id: call.turn_id });
+    h.read("event_msg", { type: "task_started", turn_id: "remote" });
+    h.read("response_item", { type: "custom_tool_call", name: "exec", call_id: "remote-call" });
+    expect(h.session()).toMatchObject({ codexActivitySource: "transcript", inTurn: true, characters: [
+      { id: "codex-transcript:remote-call", status: "working" },
+    ] });
+    // 이전 턴의 완료 hook이 늦게 도착해도 현재 기록 모드는 유지한다.
+    h.send("PostToolUse", call);
+    expect(h.session().codexActivitySource).toBe("transcript");
+    expect(h.session().characters[0].status).toBe("working");
+  });
+
+  test("UserPromptSubmit hook이 먼저 와도 다음 턴은 기록 관찰로 전환한다", () => {
+    const h = recordedSession();
+    h.send("PreToolUse", call);
+    h.send("PostToolUse", call);
+    h.send("Stop", { turn_id: call.turn_id });
+    h.send("UserPromptSubmit", { turn_id: "remote" });
+    expect(h.session().codexActivitySource).toBe("transcript");
+    h.read("event_msg", { type: "task_started", turn_id: "remote" });
+    h.read("response_item", { type: "function_call", name: "read", call_id: "r1" });
+    expect(h.session().characters).toMatchObject([{ id: "codex-transcript:r1" }]);
+  });
+
+  test("먼저 받은 같은 턴의 hook을 뒤늦은 시작 기록이 취소하지 않는다", () => {
+    const h = recordedSession();
+    h.read("event_msg", { type: "task_started", turn_id: "old" });
+    h.read("response_item", { type: "custom_tool_call", name: "exec", call_id: "old-call" });
+    h.send("PreToolUse", call);
+    h.read("event_msg", { type: "task_started", turn_id: call.turn_id });
+    h.read("response_item", { type: "custom_tool_call", name: "exec", call_id: "wrapper" });
+    expect(h.session()).toMatchObject({ codexActivitySource: "hooks", codexHookTurnId: call.turn_id,
+      characters: [{ id: call.tool_use_id, status: "working" }] });
+    expect(h.session().characters).toHaveLength(1);
+  });
+
+  test("자동 검토가 첫 hook이어도 턴 진행 중에는 켜고 종료하면 끈다", () => {
+    const h = recordedSession("auto_review");
+    h.read("event_msg", { type: "task_started", turn_id: call.turn_id });
+    h.read("response_item", { type: "custom_tool_call", name: "exec", call_id: "wrapper" });
+    h.send("PermissionRequest", { ...call, transcript_path: h.transcript_path });
+    expect(h.session()).toMatchObject({ codexActivitySource: "hooks", inTurn: true, lit: true, characters: [] });
+    h.read("event_msg", { type: "task_complete", turn_id: call.turn_id });
+    expect(h.session()).toMatchObject({ inTurn: false, lit: false });
+  });
+
+  test("연결 신호만으로 불을 켜거나 일하는 것으로 표시하지 않는다", () => {
+    const h = harness();
+    h.send("OfficeConnect");
+    expect(h.session()).toMatchObject({ connected: true, lit: false, characters: [], codexActivitySource: "unavailable" });
+  });
+
+  test("hook 없이 기록만으로 생각 중·도구 실행·턴 종료를 반영한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    const line = (type: string, payload: unknown, at = h.time()) => JSON.stringify({ type, timestamp: new Date(at).toISOString(), payload });
+    appendFileSync(transcript_path, line("event_msg", { type: "task_started", turn_id: "t" }) + "\n");
+    h.send("OfficeConnect", { transcript_path });
+    expect(h.session()).toMatchObject({ inTurn: true, lit: true, codexActivitySource: "transcript" });
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    refresh(line("response_item", { type: "custom_tool_call", name: "exec", call_id: "c" }));
+    expect(h.session().characters).toMatchObject([{ id: "codex-transcript:c", status: "working" }]);
+    refresh(line("response_item", { type: "custom_tool_call_output", call_id: "c", output: "done" }));
+    expect(h.session()).toMatchObject({ inTurn: true, characters: [], doneCount: 1 });
+    refresh(line("event_msg", { type: "task_complete", turn_id: "t" }));
+    expect(h.session()).toMatchObject({ inTurn: false, lit: false, answered: true });
+  });
+
+  test("이미 끝난 대화에 연결하면 과거 도구를 재생하지 않고 퇴근 상태로 표시한다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    const at = h.time() - 10_000;
+    appendFileSync(transcript_path, [
+      { type: "task_started", turn_id: "old" },
+      { type: "task_complete", turn_id: "old" },
+    ].map((payload, i) => JSON.stringify({ type: "event_msg", timestamp: new Date(at + i).toISOString(), payload })).join("\n") + "\n");
+    h.send("OfficeConnect", { transcript_path });
+    expect(h.session()).toMatchObject({ lit: false, inTurn: false, doneCount: 0, characters: [] });
+  });
+
+  test("native hook이 도착하면 기록 캐릭터를 제거해 이중 표시하지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    appendFileSync(transcript_path, [
+      { type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } },
+      { type: "response_item", payload: { type: "custom_tool_call", name: "exec", call_id: "c" } },
+    ].map((row) => JSON.stringify({ ...row, timestamp: new Date(h.time()).toISOString() })).join("\n") + "\n");
+    h.send("OfficeConnect", { transcript_path });
+    expect(h.session().characters).toHaveLength(1);
+    h.send("PreToolUse", call);
+    expect(h.session()).toMatchObject({ codexActivitySource: "hooks", characters: [{ id: "call-1" }] });
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    refresh(JSON.stringify({ type: "response_item", timestamp: new Date(h.time()).toISOString(), payload: { type: "custom_tool_call", name: "exec", call_id: "c2" } }));
+    expect(h.session().characters).toHaveLength(1);
+  });
+
+  test("연결 해제 후 감시 콜백으로 세션을 되살리지 않는다", () => {
+    const h = harness();
+    const transcript_path = rollout("user");
+    h.send("OfficeConnect", { transcript_path });
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    h.send("OfficeDisconnect");
+    refresh(JSON.stringify({ type: "event_msg", timestamp: new Date(h.time()).toISOString(), payload: { type: "task_started", turn_id: "t" } }));
+    expect(h.session()).toMatchObject({ connected: false, lit: false });
+  });
+
   test("연결 전 hook으로 세션을 자동 생성하지 않는다", () => {
     const h = harness();
     for (const name of ["UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop", "SessionEnd"]) h.send(name, call);
@@ -36,9 +173,10 @@ describe("Codex hook 수집", () => {
   test("Codex transcript를 Claude 해석기에 넘기지 않는다", () => {
     const h = harness();
     follow.mockClear();
-    h.send("OfficeConnect", { transcript_path: "/tmp/codex-rollout.jsonl" });
-    h.send("PreToolUse", { ...call, transcript_path: "/tmp/codex-rollout.jsonl" });
-    expect(follow).toHaveBeenCalledWith(`codex:${h.id}`, "/tmp/codex-rollout.jsonl", expect.any(Function));
+    const transcript_path = rollout("user");
+    h.send("OfficeConnect", { transcript_path });
+    h.send("PreToolUse", { ...call, transcript_path });
+    expect(follow).toHaveBeenCalledWith(`codex:${h.id}`, transcript_path, expect.any(Function), expect.any(Number));
     const callback = follow.mock.calls.at(-1)![2];
     callback(JSON.stringify({ type: "user", timestamp: new Date().toISOString(), message: { content: "[Request interrupted by user]" } }));
     expect(h.session()).toMatchObject({ source: "codex", turnId: "turn-1", inTurn: true });

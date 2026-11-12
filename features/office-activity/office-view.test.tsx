@@ -36,6 +36,25 @@ describe("프로젝트로 묶인 탭", () => {
     id, kind: "tool", status, label: "Read", toolName: "Read", toolInput: {}, since: 0,
   });
 
+  test("Claude와 함께 묶여도 Codex 관찰 한계와 생각 중 상태를 알린다", () => {
+    render(<OfficeView />);
+    send({ ...empty("i1"), sessions: {
+      a: member("a", "claude", { lit: false }),
+      b: member("b", "codex", { source: "codex", inTurn: true, codexActivitySource: "transcript" }),
+    }, order: ["a", "b"] });
+    expect(screen.getByRole("alert")).toHaveTextContent("대화 기록으로 표시");
+    expect(screen.getByRole("tab")).toHaveTextContent("생각·응답 중");
+  });
+
+  test("연결만 되고 활동을 못 읽는 Codex를 퇴근으로 단정하지 않는다", () => {
+    render(<OfficeView />);
+    send({ ...empty("i1"), sessions: {
+      b: member("b", "codex", { source: "codex", lit: false, codexActivitySource: "unavailable" }),
+    }, order: ["b"] });
+    expect(screen.getByRole("alert")).toHaveTextContent("활동 신호를 아직 받지 못했어요");
+    expect(screen.getByRole("tab")).toHaveTextContent("활동 확인 필요");
+  });
+
   test("같은 저장소의 세션들은 프로젝트 이름의 탭 하나로 묶고 상태를 합친다", () => {
     render(<OfficeView />);
     send({

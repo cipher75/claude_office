@@ -10,6 +10,7 @@ export type Character = {
   id: string;
   // 실제 호출 id를 복구해도 화면에서는 같은 캐릭터로 이어진다.
   sceneId?: string;
+  activityOrigin?: "transcript";
   turnId?: string;
   kind: CharacterKind;
   status: CharacterStatus;
@@ -35,6 +36,10 @@ export type Character = {
 export type Session = {
   id: string;
   source?: "codex";
+  // 명령 연결만 성공한 상태를 실제 활동 수집 성공과 구분한다.
+  codexActivitySource?: "hooks" | "transcript" | "unavailable";
+  // hook 관찰은 해당 턴에만 유효하다. 다음 원격 턴의 기록 표시를 막지 않는다.
+  codexHookTurnId?: string;
   // 정확히 연결해 반영한 바깥 코드 호출의 거절 기록. 같은 기록을 다른 대기에 재사용하지 않는다.
   codexRejectionIds?: string[];
   turnId?: string;
@@ -50,7 +55,7 @@ export type Session = {
   connected: boolean;
   // /office close로 연결을 끊었다. 다시 /office로 연결하기 전까지 이 세션의 이벤트를 반영하지 않는다.
   closed?: boolean;
-  // 세션이 연결되어 있고, 아직 일이 없었거나, 턴이 진행 중이거나, 일하거나 기다리는 캐릭터가 있으면 사무실에 불이 켜진다.
+  // 연결된 세션의 진행 중 턴·캐릭터가 있으면 켠다. Claude는 연결 직후 대기 장면도 유지한다.
   lit: boolean;
   // 사용자가 요청을 보낸 뒤(UserPromptSubmit) 턴이 끝날 때(Stop)까지. 도구 호출 사이에 생각하는 동안에도 불을 켜 둔다.
   inTurn?: boolean;
