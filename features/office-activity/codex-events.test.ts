@@ -39,6 +39,49 @@ function recordedSession(reviewer = "user") {
 }
 
 describe("Codex hook 수집", () => {
+  test("기록 파일 없이 시작·종료 hook만 오는 턴도 활동 확인 필요로 남기지 않는다", () => {
+    const h = harness();
+    h.send("OfficeConnect");
+    expect(h.session().codexActivitySource).toBe("unavailable");
+    for (const turn_id of ["text-1", "text-2"]) {
+      h.send("UserPromptSubmit", { turn_id });
+      expect(h.session()).toMatchObject({ codexActivitySource: "hooks", inTurn: true, lit: true });
+      h.send("Stop", { turn_id });
+      expect(h.session()).toMatchObject({ codexActivitySource: "hooks", inTurn: false, lit: false, characters: [] });
+    }
+  });
+
+  test("/review 하위 턴 시작과 부모 종료 기록으로 불과 Boss의 진행 상태를 정리한다", () => {
+    const h = recordedSession();
+    h.read("event_msg", { type: "task_started", turn_id: "review-child", root_turn_id: "parent" });
+    expect(h.session()).toMatchObject({ turnId: "parent", inTurn: true, lit: true });
+    h.read("event_msg", { type: "task_complete", turn_id: "parent", root_turn_id: "parent" });
+    expect(h.session()).toMatchObject({ inTurn: false, lit: false, answered: true });
+  });
+
+  test("하위 턴 ID의 native 도구 hook 뒤 부모 종료 기록도 수락한다", () => {
+    const h = recordedSession();
+    h.read("event_msg", { type: "task_started", turn_id: "child", root_turn_id: "parent" });
+    h.send("PreToolUse", { ...call, turn_id: "child" });
+    h.send("PostToolUse", { ...call, turn_id: "child" });
+    h.read("event_msg", { type: "task_complete", turn_id: "parent", root_turn_id: "parent" });
+    expect(h.session()).toMatchObject({ inTurn: false, lit: false, characters: [] });
+  });
+
+  test("부모 종료와 다음 턴 시작을 묶어 읽어도 이전 하위 턴의 native 호출을 정리한다", () => {
+    const h = recordedSession();
+    h.read("event_msg", { type: "task_started", turn_id: "child", root_turn_id: "parent" });
+    h.send("PreToolUse", { ...call, turn_id: "child" });
+    const refresh = follow.mock.calls.find((args) => args[0] === `codex:${h.id}`)![2];
+    h.advance(10);
+    refresh([
+      { type: "task_complete", turn_id: "parent", root_turn_id: "parent" },
+      { type: "task_started", turn_id: "next", root_turn_id: "next" },
+    ].map((payload, i) => JSON.stringify({ type: "event_msg", timestamp: new Date(h.time() + i).toISOString(), payload })).join("\n"));
+    expect(h.session()).toMatchObject({ turnId: "next", inTurn: true, codexActivitySource: "transcript",
+      characters: [{ id: call.tool_use_id, status: "cancelled" }] });
+  });
+
   test("종료 없이 새 턴으로 넘어가면 이전 기록 호출만 중단으로 정리한다", () => {
     const h = recordedSession();
     h.read("event_msg", { type: "task_started", turn_id: "old" });
