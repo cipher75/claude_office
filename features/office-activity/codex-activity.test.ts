@@ -114,6 +114,22 @@ describe("Codex 기록 활동 복구", () => {
     expect(reader.read(output("c1", 4_000))).toEqual([]);
   });
 
+  test("중단된 턴을 같은 루트의 하위 턴으로 다시 이어 가면 턴을 다시 열고 도구를 표시한다", () => {
+    const reader = createCodexActivityReader();
+    reader.read([start("parent"), call("c1", 2_000), row("event_msg", { type: "turn_aborted", turn_id: "parent" }, 3_000)].join("\n"));
+    const resumed = reader.read([
+      row("event_msg", { type: "task_started", turn_id: "recovery", root_turn_id: "parent" }, 3_007),
+      row("response_item", { type: "custom_tool_call", name: "exec", call_id: "c2",
+        internal_chat_message_metadata_passthrough: { turn_id: "recovery" } }, 4_000),
+      row("response_item", { type: "custom_tool_call_output", call_id: "c2", output: "Script completed\n" }, 5_000),
+      row("event_msg", { type: "task_complete", turn_id: "recovery", root_turn_id: "parent" }, 6_000),
+    ].join("\n"));
+    expect(resumed.map((a) => [a.event.hook_event_name, a.event.turn_id])).toEqual([
+      ["UserPromptSubmit", "parent"], ["PreToolUse", "parent"], ["PostToolUse", "parent"], ["Stop", "parent"],
+    ]);
+    expect(reader.snapshot().map((a) => a.event.hook_event_name)).toEqual(["UserPromptSubmit", "Stop"]);
+  });
+
   test("일반 도구 호출도 표시하고 중복 결과는 무시한다", () => {
     const reader = createCodexActivityReader();
     reader.read(start());
