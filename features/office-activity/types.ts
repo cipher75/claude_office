@@ -15,6 +15,8 @@ export type Character = {
   kind: CharacterKind;
   status: CharacterStatus;
   label: string;
+  // 사무실별로 합친 화면의 말풍선 제공자 표시. 세션 번호가 있으면 함께 표시한다.
+  speaker?: string;
   toolName: string;
   toolInput: unknown;
   since: number;

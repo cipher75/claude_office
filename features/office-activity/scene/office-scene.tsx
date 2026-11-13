@@ -352,6 +352,7 @@ function WalkerBubble({ walker }: { walker: Walker }) {
   // 화면 가장자리나 보스 옆(결재 중)에서는 말풍선을 안쪽·보스 반대쪽으로 치우친다.
   const edge = walker.x < 70 ? styles.edgeLeft : walker.x > 262 || walker.reporting ? styles.edgeRight : "";
   const kindColor = { "--kind": KIND_STYLE[walker.kind].accent } as React.CSSProperties;
+  const speaker = walker.speaker ? `${walker.speaker} · ` : "";
 
   return (
     <div
@@ -369,15 +370,16 @@ function WalkerBubble({ walker }: { walker: Walker }) {
         <>
           <b>?</b>
           <span>{walker.label}</span>
+          {walker.speaker ? <small className={styles.mobileSpeaker}>{walker.speaker}</small> : null}
         </>
       ) : walker.bubble === "sad" ? (
-        "거절됨 · 퇴근할게요"
+        `${speaker}거절됨 · 퇴근할게요`
       ) : walker.bubble === "glad" ? (
-        "허용됨 · 일 마쳤어요"
+        `${speaker}허용됨 · 일 마쳤어요`
       ) : walker.bubble === "done" ? (
-        "일 마쳤어요"
+        `${speaker}일 마쳤어요`
       ) : walker.bubble === "stop" ? (
-        "중단됨 · 퇴근할게요"
+        `${speaker}중단됨 · 퇴근할게요`
       ) : (
         <>
           <i className={styles.dot} />

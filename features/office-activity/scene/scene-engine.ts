@@ -12,6 +12,7 @@ export type SceneCharacter = {
   kind: CharacterKind;
   status: CharacterStatus;
   label: string;
+  speaker?: string;
 };
 
 export type Expression = "happy" | "confused" | "sad" | "plain";
@@ -21,6 +22,7 @@ export type Walker = {
   id: string;
   kind: CharacterKind;
   label: string;
+  speaker?: string;
   x: number;
   y: number;
   flip: 1 | -1;
@@ -383,6 +385,7 @@ export class SceneEngine {
       id: character.id,
       kind: character.kind,
       label: character.label,
+      speaker: character.speaker,
       x: DOOR.x,
       y: DOOR.y,
       flip: 1,
@@ -415,6 +418,7 @@ export class SceneEngine {
 
   private update(w: Internal, c: SceneCharacter, isNew = false) {
     w.label = c.label;
+    w.speaker = c.speaker;
     if (c.status === "waiting" && w.phase !== "to-wait" && w.phase !== "waiting") this.goWait(w);
     else if (c.status === "denied" && w.phase === "leaving") {
       w.expr = "sad";

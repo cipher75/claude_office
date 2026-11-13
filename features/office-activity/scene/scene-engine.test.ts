@@ -30,6 +30,15 @@ function walker(e: SceneEngine, id: string) {
 }
 
 describe("수행 중", () => {
+  test("제공자 이름을 캐릭터 생성과 상태 갱신 뒤에도 유지한다", () => {
+    const e = engine();
+    e.sync([{ ...work("a"), speaker: "#2 ChatGPT" }], true);
+    expect(walker(e, "a").speaker).toBe("#2 ChatGPT");
+    e.sync([{ ...waiting("a"), speaker: "#1 ChatGPT" }], true);
+    expect(walker(e, "a").speaker).toBe("#1 ChatGPT");
+    e.sync([{ ...denied("a"), speaker: "#1 ChatGPT" }], true);
+    expect(walker(e, "a").speaker).toBe("#1 ChatGPT");
+  });
   test("새 호출은 출입문에서 나타나 사무실 안쪽으로 걸어 들어간다", () => {
     const e = engine();
     e.sync([work("a")], true);
