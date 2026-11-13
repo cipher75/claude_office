@@ -83,7 +83,7 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
     const id = payload.session_id;
     if (origin === "settings" && (typeof id !== "string" || (!s.state.sessions[id] && !s.state.retired?.[id]))) return;
     // 스킬 hook이 살아 있는 동안에는 같은 신호가 두 경로로 똑같이 온다. 한 번만 반영한다.
-    if (seenHook(payload, now)) return;
+    if (otherCopyOf(payload, origin, now)) return;
   }
   s.state = applyHookEvent(s.state, withProjectRoot(payload), now);
   notify();
@@ -91,15 +91,22 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
   followTranscripts(payload);
 }
 
-const SAME_HOOK_MS = 10_000;
-const recentHooks = ((globalThis as typeof globalThis & { __officeRecentHooks?: Map<string, number> })
-  .__officeRecentHooks ??= new Map<string, number>());
+// 두 경로의 hook은 같은 순간에 함께 실행된다. 이 시간 안에 다른 경로로 온 같은 내용만 짝으로 본다.
+const PAIR_MS = 5_000;
+type HookCopy = { origin: HookOrigin; at: number };
+const hookCopies = ((globalThis as typeof globalThis & { __officeHookCopies?: Map<string, HookCopy> })
+  .__officeHookCopies ??= new Map<string, HookCopy>());
 
-function seenHook(payload: Record<string, unknown>, now: number): boolean {
-  for (const [key, at] of recentHooks) if (now - at > SAME_HOOK_MS) recentHooks.delete(key);
+// 같은 경로로 다시 온 같은 내용은 새 신호다. 짧은 답을 빠르게 반복한 다음 턴의 Stop 같은 경우다.
+function otherCopyOf(payload: Record<string, unknown>, origin: HookOrigin, now: number): boolean {
+  for (const [key, copy] of hookCopies) if (now - copy.at > PAIR_MS) hookCopies.delete(key);
   const key = createHash("sha1").update(JSON.stringify(payload)).digest("hex");
-  if (recentHooks.has(key)) return true;
-  recentHooks.set(key, now);
+  const first = hookCopies.get(key);
+  if (first && first.origin !== origin) {
+    hookCopies.delete(key);
+    return true;
+  }
+  hookCopies.set(key, { origin, at: now });
   return false;
 }
 

@@ -53,6 +53,43 @@ describe("hook 경로", () => {
     expect(h.session()).toMatchObject({ doneCount: 2, inTurn: false, lit: false });
   });
 
+  test("같은 경로로 다시 온 같은 내용은 다음 턴의 신호로 받는다", () => {
+    const h = harness();
+    h.skill("OfficeConnect");
+    for (const id of ["t1", "t2"]) {
+      h.settings("UserPromptSubmit", { prompt: "계속" });
+      h.settings("PreToolUse", { ...read, tool_use_id: id });
+      h.skill("PostToolUse", { ...read, tool_use_id: id });
+      h.settings("Stop", { last_assistant_message: "네." });
+      expect(h.session()).toMatchObject({ inTurn: false, lit: false });
+    }
+    expect(h.session().doneCount).toBe(2);
+  });
+
+  test("스킬 hook이 살아 있는 동안 같은 답으로 끝난 두 턴도 각각 끝난다", () => {
+    const h = harness();
+    h.skill("OfficeConnect");
+    for (const id of ["t1", "t2"]) {
+      h.both("UserPromptSubmit", { prompt: "계속" });
+      h.both("PreToolUse", { ...read, tool_use_id: id });
+      h.skill("PostToolUse", { ...read, tool_use_id: id });
+      h.both("Stop", { last_assistant_message: "네." });
+      expect(h.session()).toMatchObject({ inTurn: false, lit: false });
+    }
+  });
+
+  test("본 턴이 끝난 뒤 백그라운드 sub-agent의 호출은 본 세션의 턴을 다시 켜지 않는다", () => {
+    const h = harness();
+    h.skill("OfficeConnect");
+    h.settings("UserPromptSubmit");
+    h.settings("Stop");
+    const sub = { ...read, agent_id: "bg1", tool_use_id: "s1" };
+    h.settings("PreToolUse", sub);
+    expect(h.session()).toMatchObject({ inTurn: false, characters: [{ id: "s1", agentId: "bg1", status: "working" }] });
+    h.skill("PostToolUse", sub);
+    expect(officeSnapshot(Date.now() + 60_000).sessions[h.id]).toMatchObject({ inTurn: false, lit: false, characters: [] });
+  });
+
   test("서버가 연결 신호를 놓친 세션도 스킬 hook으로는 이전 상태를 모르는 세션으로 나타난다", () => {
     const h = harness();
     h.skill("PreToolUse", read);

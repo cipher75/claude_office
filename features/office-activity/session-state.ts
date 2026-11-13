@@ -91,7 +91,8 @@ export function applyHookEvent(
         session = { ...session, connected: true, characters: [...session.characters, startCharacter(payload, now)] };
       }
       // 턴 시작(UserPromptSubmit)을 놓친 세션도 도구 호출을 보면 턴 중인 것을 안다.
-      session = { ...session, inTurn: true, ...(!text(payload.agent_id) ? { turnActivityAt: now } : {}) };
+      // sub-agent 안의 호출은 본 턴이 끝난 뒤에도(백그라운드) 오므로 본 세션의 턴을 다시 켜지 않는다.
+      if (!text(payload.agent_id)) session = { ...session, inTurn: true, turnActivityAt: now };
       if (session.source === "codex" && text(payload.turn_id)) session = { ...session, turnId: text(payload.turn_id) };
       break;
     case "UserPromptExpansion":
