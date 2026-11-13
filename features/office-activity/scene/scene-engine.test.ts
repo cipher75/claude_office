@@ -400,11 +400,10 @@ describe("혼자 쓰는 보스와 비서", () => {
     expect(e.papers).toEqual([]);
   });
 
-  test("짧게 혼자 쓸 때는 비서가 오지 않고, 오래 쓰면 커피를 가져와 책상에 두고 돌아간다", () => {
+  test("턴을 1분 30초 진행하면 비서가 커피를 가져와 책상에 두고 돌아간다", () => {
     const e = engine();
     e.sync([], true);
-    // 쉬지 않고 25–40초를 써야 온다.
-    expect(untilSecretary(e, 60)).toBeGreaterThanOrEqual(25);
+    expect(untilSecretary(e, 120)).toBeCloseTo(90, 0);
     expect(e.secretary).toMatchObject({ carrying: true });
     let served = false;
     for (let i = 0; i < 40 * 20 && e.secretary; i++) {
@@ -417,37 +416,49 @@ describe("혼자 쓰는 보스와 비서", () => {
     expect(e.coffee).toBe(true);
   });
 
-  test("비서는 한 번 온 뒤 3분 안에는 다시 오지 않는다", () => {
+  test("비서는 다녀간 뒤 다시 1분 30초가 지날 때마다 온다", () => {
     const e = engine();
     e.sync([], true);
-    let visits = 0;
+    const arrivals: number[] = [];
+    let left = 0;
     let present = false;
-    for (let i = 0; i < 170 * 20; i++) {
+    for (let i = 0; i < 300 * 20; i++) {
       e.step(0.05);
-      if (e.secretary && !present) visits++;
+      if (e.secretary && !present) arrivals.push(i / 20);
+      if (!e.secretary && present) left = i / 20;
       present = e.secretary !== null;
+      if (arrivals.length === 2) break;
     }
 
-    expect(visits).toBe(1);
+    expect(arrivals).toHaveLength(2);
+    expect(arrivals[1] - left).toBeCloseTo(90, 0);
   });
 
-  test("직원이 드나들어 혼자 쓰는 시간이 끊기면 비서는 오지 않는다", () => {
+  test("직원이 드나들어도 시간이 이어서 쌓여 1분 30초면 비서가 온다", () => {
+    const e = engine();
+    e.sync([work("a")], true);
+    run(e, 50);
+    e.sync([], true);
+    expect(e.secretary).toBeNull();
+    expect(untilSecretary(e, 60)).toBeCloseTo(40, 0);
+  });
+
+  test("턴과 턴 사이에도 시간이 이어져, 짧은 턴이 이어지면 다음 턴에 비서가 온다", () => {
     const e = engine();
     e.sync([], true);
-    for (let round = 0; round < 6; round++) {
-      run(e, 15);
-      e.sync([work(`w${round}`)], true);
-      e.step(0.05);
-      e.sync([], true);
-    }
-
+    run(e, 50);
+    e.sync([], false);
+    run(e, 5);
     expect(e.secretary).toBeNull();
+    e.sync([], true);
+    // 남은 40초에, 퇴근하던 보스가 자리로 돌아오는 시간만 더해진다.
+    expect(untilSecretary(e, 60)).toBeLessThan(50);
   });
 
   test("비서가 커피를 건네는 중에도 직원의 결재와 보스의 수고했어요는 그대로 일어난다", () => {
     const e = engine();
     e.sync([], true);
-    untilSecretary(e, 60);
+    untilSecretary(e, 120);
     while (e.secretary && !e.secretary.serving) e.step(0.05);
     expect(e.secretary?.serving).toBe(true);
 
@@ -464,7 +475,7 @@ describe("혼자 쓰는 보스와 비서", () => {
   test("턴이 끝나면 비서도 돌아가고 커피를 치우며, 비서까지 나간 뒤에 불이 꺼진다", () => {
     const e = engine();
     e.sync([], true);
-    untilSecretary(e, 60);
+    untilSecretary(e, 120);
     run(e, 2);
     expect(e.secretary).not.toBeNull();
 

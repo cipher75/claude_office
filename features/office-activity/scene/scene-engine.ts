@@ -116,11 +116,9 @@ const CHEER_TIME = 0.9;
 export const PAPER_LIFE = 1.9;
 // 보스가 연필을 움직이는 간격.
 const WRITE_FRAME_TIME = 0.13;
-// 비서는 보스가 쉬지 않고 이만큼(초) 혼자 쓴 뒤에야 오고, 한 번 온 뒤에는 COFFEE_COOLDOWN 동안 오지 않는다.
-// 자주 오면 산만하므로 짧은 생각에는 오지 않게 했다.
-const COFFEE_AFTER = 25;
-const COFFEE_JITTER = 15;
-const COFFEE_COOLDOWN = 180;
+// 비서는 보스가 자리에서 턴을 진행한 시간이 이만큼(초) 쌓일 때마다 커피를 가져온다.
+// 직원이 드나들어도 시간은 이어서 쌓이고, 턴과 턴 사이에도 0으로 돌아가지 않는다.
+const COFFEE_EVERY = 90;
 const SERVE_PAUSE = 2.2;
 
 export class SceneEngine {
@@ -150,17 +148,14 @@ export class SceneEngine {
   private nextPaper = PAPER_EVERY;
   private cheerTime = 0;
   private writeFrameTime = 0;
-  // 보스가 쉬지 않고 혼자 쓴 시간, 마지막 커피 뒤로 지난 시간, 이번에 커피가 올 때까지 쓸 시간.
-  private writeStreak = 0;
-  private sinceCoffee = COFFEE_COOLDOWN;
-  private coffeeAfter: number;
+  // 마지막 커피 뒤로 보스가 자리에서 턴을 진행한 시간.
+  private sinceCoffee = 0;
   private helper: SecretaryState | null = null;
   // 비서가 책상에 내려놓은 커피. 보스가 퇴근할 때 치운다.
   coffee = false;
   lit = false;
 
   constructor(private readonly rng: () => number = Math.random) {
-    this.coffeeAfter = COFFEE_AFTER + rng() * COFFEE_JITTER;
   }
 
   get papers(): Paper[] {
@@ -276,21 +271,22 @@ export class SceneEngine {
     return "plain";
   }
 
-  // 앉아서 쓰는 동안 손을 움직이고, 가끔 다 쓴 종이를 뒤나 위로 던진다. 쉬지 않고 오래 쓰면 비서를 부른다.
+  // 앉아서 쓰는 동안 손을 움직이고, 가끔 다 쓴 종이를 뒤나 위로 던진다. 자리에서 턴을 90초 진행할 때마다 비서를 부른다.
   private advanceWriting(dt: number) {
     for (const p of this.paperList) p.age += dt;
     this.paperList = this.paperList.filter((p) => p.age < PAPER_LIFE);
-    this.sinceCoffee += dt;
     const b = this.chief;
+    if (b.phase === "seated" && this.serverWorking && !this.helper) {
+      this.sinceCoffee += dt;
+      if (this.sinceCoffee >= COFFEE_EVERY) this.callSecretary();
+    }
     const writing = b.phase === "seated" && b.pose === "write";
     if (!writing) {
-      this.writeStreak = 0;
       this.nextPaper = PAPER_EVERY;
       this.cheerTime = 0;
       b.cheering = false;
       return;
     }
-    this.writeStreak += dt;
     if (this.cheerTime > 0) {
       this.cheerTime -= dt;
       b.cheering = this.cheerTime > 0;
@@ -306,7 +302,6 @@ export class SceneEngine {
       this.nextPaper = PAPER_EVERY + this.rng() * PAPER_JITTER;
       this.scatterPapers();
     }
-    if (!this.helper && this.writeStreak >= this.coffeeAfter && this.sinceCoffee >= COFFEE_COOLDOWN) this.callSecretary();
   }
 
   // 유레카! 두 팔을 들고 종이 여러 장을 머리 위로 부채꼴로 흩뿌린다.
@@ -347,7 +342,6 @@ export class SceneEngine {
       fadeTime: 0,
     };
     this.sinceCoffee = 0;
-    this.coffeeAfter = COFFEE_AFTER + this.rng() * COFFEE_JITTER;
   }
 
   private secretaryLeaves() {
