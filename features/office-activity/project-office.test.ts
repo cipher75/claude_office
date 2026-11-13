@@ -58,7 +58,8 @@ describe("프로젝트 사무실", () => {
       shown
     );
 
-    expect(office.session.characters[0].label).toBe("Claude · Read");
+    expect(office.session.characters[0].label).toBe("Read");
+    expect(office.session.characters[0].speaker).toBeUndefined();
     expect(office.plans).toEqual([{ items: [{ content: "고치기", status: "pending" }] }]);
   });
 
@@ -69,6 +70,15 @@ describe("프로젝트 사무실", () => {
     );
 
     expect(offices[0].sessionIds).toEqual(["a"]);
+  });
+
+  test("여러 세션에서 하나만 남으면 제공자 이름과 번호를 지운다", () => {
+    const a = session("a", { project: "blog", source: "codex", characters: [call("t1", "working")] });
+    const b = session("b", { project: "blog" });
+    expect(projectOffices(stateOf(a, b), shown)[0].session.characters[0].speaker).toBe("#1 ChatGPT");
+    const remaining = projectOffices(stateOf(a, { ...b, connected: false }), shown)[0].session.characters[0];
+    expect(remaining.label).toBe("Read");
+    expect(remaining.speaker).toBeUndefined();
   });
 });
 
@@ -89,9 +99,15 @@ describe("호스팅 화면의 프로젝트 사무실", () => {
     expect(local).toEqual(original);
   });
 
-  test("단일 Codex 세션에도 ChatGPT를 표시한다", () => {
-    const [office] = projectOffices(stateOf(session("a", { source: "codex", characters: [call("t1", "working")] })), shown);
-    expect(office.session.characters[0]).toMatchObject({ label: "ChatGPT · Read", speaker: "ChatGPT" });
+  test("호스팅의 단일 Codex 세션은 도구 이름만 표시한다", () => {
+    const hosted = composeHostedState({
+      serverNow: 1_000,
+      machines: [{ machine: "mac", heartbeatSec: 20, receivedAt: 1_000,
+        state: redactState(stateOf(session("a", { source: "codex", characters: [call("t1", "working")] }))) }],
+    }).state;
+    const [office] = projectOffices(hosted, shown);
+    expect(office.session.characters[0].label).toBe("Read");
+    expect(office.session.characters[0].speaker).toBeUndefined();
   });
 
   test("한 PC에서 이름만 같은 다른 저장소는 경로를 지운 뒤에도 따로 보인다", () => {
