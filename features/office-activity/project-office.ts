@@ -53,9 +53,10 @@ function merge(key: string, members: Session[]): Session {
     transcriptUnreliable: members.some((s) => s.transcriptUnreliable === true),
     codexActivitySource: members.some((s) => s.connected && s.codexActivitySource === "unavailable") ? "unavailable"
       : members.some((s) => s.connected && s.codexActivitySource === "transcript") ? "transcript" : undefined,
-    characters: members.flatMap((s, i) =>
-      s.characters.map((c) => (members.length > 1 ? { ...c, label: `${mark(members, i)}${c.label}` } : c))
-    ),
+    characters: members.flatMap((s, i) => {
+      const speaker = `${mark(members, i)}${s.source === "codex" ? "ChatGPT" : "Claude"}`;
+      return s.characters.map((c) => ({ ...c, speaker, label: `${speaker} · ${c.label}` }));
+    }),
   };
 }
 

@@ -236,6 +236,11 @@
   background: #fff3b0;
 }
 
+.mobileSpeaker {
+  display: none;
+  font-size: inherit;
+}
+
 .ask b {
   color: #b25a00;
   font-size: clamp(16px, calc(var(--p) * 8), 30px);
@@ -429,6 +434,9 @@
 @container (max-width: 480px) {
   .ask span {
     display: none;
+  }
+  .mobileSpeaker {
+    display: block;
   }
 }
 
