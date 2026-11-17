@@ -464,6 +464,21 @@ describe("혼자 쓰는 보스와 비서", () => {
     expect(untilSecretary(e, 60)).toBeLessThan(50);
   });
 
+  test.each([
+    ["직원이 일하는 중", [work("a")], "think"],
+    ["허용을 기다리는 중", [waiting("a")], "confused"],
+    ["혼자 쓰는 중", [], "write"],
+  ] as const)("%s에도 보스는 커피를 건네받는 동안 고마워한다", (_, characters, pose) => {
+    const e = engine();
+    e.sync([...characters], true);
+    untilSecretary(e, 120);
+    while (e.secretary && !e.secretary.serving) e.step(0.05);
+
+    expect(e.boss).toMatchObject({ pose, thanking: true });
+    while (e.secretary?.serving) e.step(0.05);
+    expect(e.boss?.thanking).toBe(false);
+  });
+
   test("비서가 커피를 건네는 중에도 직원의 결재와 보스의 수고했어요는 그대로 일어난다", () => {
     const e = engine();
     e.sync([], true);
@@ -475,7 +490,11 @@ describe("혼자 쓰는 보스와 비서", () => {
     let approvedPose = false;
     for (let i = 0; i < 20 * 20; i++) {
       e.step(0.05);
-      if (e.boss?.pose === "approve") approvedPose = true;
+      if (e.boss?.pose === "approve") {
+        approvedPose = true;
+        // 결재 중에는 수고했어요가 고마워요보다 먼저다.
+        expect(e.boss.thanking).toBe(false);
+      }
     }
 
     expect(approvedPose).toBe(true);
