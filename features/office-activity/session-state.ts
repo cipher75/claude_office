@@ -520,7 +520,10 @@ function adoptOrphan(session: Session, payload: Payload): Session {
   const key = stable(payload.tool_input);
   // sub-agent 안의 호출은 허용 없이 끝나는 것도 Post hook이 오므로, 같은 sub-agent의 입력이 같은 ?에만 이어 붙인다.
   const agentId = text(payload.agent_id);
-  const orphans = session.characters.filter((c) => c.orphan && c.toolName === toolName && c.agentId === agentId);
+  const orphans = session.characters.filter((c) => c.orphan && c.status === "waiting" &&
+    c.toolName === toolName && c.agentId === agentId &&
+    (session.source !== "codex" || !payload.turn_id || c.turnId === payload.turn_id) &&
+    (typeof payload.tool_completed_at !== "number" || payload.tool_completed_at >= (c.waitingAt ?? c.since)));
   const sameInput = [...orphans].reverse().find((c) => session.source === "codex"
     ? codexInputMatches(toolName, payload.tool_input, c.toolInput)
     : stable(c.toolInput) === key);

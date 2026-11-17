@@ -59,7 +59,7 @@ export function stopFollowing(sessionId: string): void {
 // 허용 대기 캐릭터를 이 호출과 이어 붙이는 데 쓴다. startedAt은 지난 턴의 호출을 새 대기에 붙이지 않도록 확인하는 시각이다.
 export type CallInfo = { toolName?: string; toolInput?: unknown; startedAt?: number };
 export type CallOutcome = PendingResult & { executed: boolean; failed?: boolean };
-export type PendingResult = CallInfo & { toolUseId: string; async: boolean; agentId?: string; rejected: boolean };
+export type PendingResult = CallInfo & { toolUseId: string; async: boolean; agentId?: string; rejected: boolean; completedAt?: number };
 // pending: 아직 판단하지 못한 결과, calls: 결과를 기다리는 호출의 도구와 입력
 export type ReaderState = { pending: PendingResult[]; calls: Record<string, CallInfo> };
 
@@ -130,13 +130,14 @@ function toolUsesOf(entry: Record<string, unknown>): Record<string, CallInfo> {
 function resultsOf(entry: Record<string, unknown>): (PendingResult & { unknown: boolean })[] {
   if (entry.type !== "user" || !isRecord(entry.message) || !Array.isArray(entry.message.content)) return [];
   const summary = entry.toolUseResult;
+  const completedAt = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
   const async = isRecord(summary) && summary.isAsync === true;
   const agentId = async && typeof summary.agentId === "string" ? summary.agentId : undefined;
   return entry.message.content.filter(isRecord).flatMap((block) => {
     if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") return [];
     const rejected = summary === REJECTED_RESULT || isRejectionText(summary) || isRejectionText(textOf(block.content));
     const unknown = textOf(block.content).startsWith(UNKNOWN_OUTCOME);
-    return [{ toolUseId: block.tool_use_id, async, ...(agentId ? { agentId } : {}), rejected, unknown }];
+    return [{ toolUseId: block.tool_use_id, async, ...(agentId ? { agentId } : {}), rejected, unknown, ...(Number.isFinite(completedAt) ? { completedAt } : {}) }];
   });
 }
 

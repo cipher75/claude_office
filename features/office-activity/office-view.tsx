@@ -144,7 +144,7 @@ export function OfficeBoard({
       {/* 사무실마다 장면을 새로 만든다. 탭을 바꿨을 때 캐릭터가 퇴근하는 장면으로 보이지 않게 한다. */}
       <OfficeScene
         key={selectedId ?? "none"}
-        characters={session?.characters ?? []}
+        characters={office?.characters ?? []}
         lit={session?.lit ?? false}
         working={session?.inTurn === true}
         hadWork={(session?.doneCount ?? 0) > 0 || session?.answered === true}
