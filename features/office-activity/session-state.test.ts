@@ -1170,3 +1170,33 @@ describe("task 목록", () => {
     expect(session(state).plan).toBeUndefined();
   });
 });
+
+describe("허용 대기 ID 복구의 수명", () => {
+  test.each([undefined, "codex"])("중단된 이전 대기를 새 호출에 붙이지 않는다 (%s)", (source) => {
+    let state = emptyOfficeState();
+    const send = (name: string, at: number, extra = {}) => {
+      state = applyHookEvent(state, { session_id: S, source, hook_event_name: name, ...extra }, at);
+    };
+    const input = { tool_name: "Bash", tool_input: { command: "ls" } };
+    send("OfficeConnect", 1000);
+    send("UserPromptSubmit", 1100, { turn_id: "a" });
+    send("PermissionRequest", 1200, { ...input, turn_id: "a" });
+    send("Stop", 1300, { turn_id: "a", stop_reason: "interrupt" });
+    send("UserPromptSubmit", 1400, { turn_id: "b" });
+    send("PreToolUse", 1500, { ...input, turn_id: "b", tool_use_id: "new" });
+    expect(session(state).characters.find((c) => c.id === "new")?.status).toBe("working");
+    send("PermissionRequest", 1600, { ...input, turn_id: "b" });
+    send("PostToolUse", 1700, { ...input, turn_id: "b", tool_use_id: "new" });
+    expect(session(state).characters.find((c) => c.id === "new")?.status).toBe("approved");
+    expect(session(state).characters.some((c) => c.status === "waiting")).toBe(false);
+  });
+
+  test("Codex의 다른 턴에서 온 완료 hook은 현재 ID 없는 대기를 가져가지 않는다", () => {
+    const input = { source: "codex", tool_name: "Bash", tool_input: { command: "ls" } };
+    const state = apply(emptyOfficeState(), { ...connect, source: "codex" },
+      { ...input, session_id: S, hook_event_name: "UserPromptSubmit", turn_id: "new" },
+      { ...input, session_id: S, hook_event_name: "PermissionRequest", turn_id: "new" },
+      { ...input, session_id: S, hook_event_name: "PostToolUse", turn_id: "old", tool_use_id: "old-call" });
+    expect(session(state).characters).toEqual([expect.objectContaining({ orphan: true, status: "waiting", turnId: "new" })]);
+  });
+});

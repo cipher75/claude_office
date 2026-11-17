@@ -93,20 +93,28 @@ export function ingestHookEvent(payload: Record<string, unknown>, now = Date.now
 
 // 두 경로의 hook은 같은 순간에 함께 실행된다. 이 시간 안에 다른 경로로 온 같은 내용만 짝으로 본다.
 const PAIR_MS = 5_000;
-type HookCopy = { origin: HookOrigin; at: number };
+type HookCopy = { origin: HookOrigin; at: number; sessionId?: unknown };
 const hookCopies = ((globalThis as typeof globalThis & { __officeHookCopies?: Map<string, HookCopy> })
   .__officeHookCopies ??= new Map<string, HookCopy>());
 
 // 같은 경로로 다시 온 같은 내용은 새 신호다. 짧은 답을 빠르게 반복한 다음 턴의 Stop 같은 경우다.
 function otherCopyOf(payload: Record<string, unknown>, origin: HookOrigin, now: number): boolean {
   for (const [key, copy] of hookCopies) if (now - copy.at > PAIR_MS) hookCopies.delete(key);
+  // 새 본 턴의 시작은 이전 턴에서 짝을 못 찾은 hook과 연결하지 않는다.
+  const session = store().state.sessions[String(payload.session_id)] ?? store().state.retired?.[String(payload.session_id)];
+  if (!payload.agent_id && !session?.inTurn &&
+    ["UserPromptSubmit", "PreToolUse"].includes(String(payload.hook_event_name))) {
+    for (const [key, copy] of hookCopies) {
+      if (copy.sessionId === payload.session_id) hookCopies.delete(key);
+    }
+  }
   const key = createHash("sha1").update(JSON.stringify(payload)).digest("hex");
   const first = hookCopies.get(key);
   if (first && first.origin !== origin) {
     hookCopies.delete(key);
     return true;
   }
-  hookCopies.set(key, { origin, at: now });
+  hookCopies.set(key, { origin, at: now, sessionId: payload.session_id });
   return false;
 }
 
@@ -320,6 +328,7 @@ function followTranscripts(payload: Record<string, unknown>) {
         tool_name: outcome.toolName,
         tool_input: outcome.toolInput,
         tool_started_at: outcome.startedAt,
+        tool_completed_at: outcome.completedAt,
         tool_response: { isAsync: outcome.async, agentId: outcome.agentId },
         rejected: outcome.rejected,
         failed: outcome.failed,
