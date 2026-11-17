@@ -121,7 +121,7 @@ export function OfficeScene({ characters, lit, working, hadWork, connected, aler
         ))}
       </div>
       <div className={styles.layer}>
-        {boss ? <BossBubble boss={boss} thanking={secretary?.serving === true} /> : null}
+        {boss ? <BossBubble boss={boss} /> : null}
         {secretary?.serving ? (
           // 비서는 보스 오른쪽에 서므로, 말풍선을 보스 반대쪽(오른쪽)으로 펼쳐 보스 말풍선과 겹치지 않게 한다.
           <div className={cn(styles.bubble, styles.edgeLeft, styles.coffeeBubble)} style={position(secretary)}>
@@ -251,9 +251,9 @@ function BossSprite({ boss }: { boss: Boss }) {
 
 // 앉은 보스의 말풍선: 결재 중 수고했어요!, 허용 대기를 보며 ?, 혼자 쓰다가 유레카!, 커피를 받으면 고마워요.
 // 생각하거나 쓰는 중에는 말풍선 대신 머리 위 전구가 깜빡인다.
-function BossBubble({ boss, thanking }: { boss: Boss; thanking: boolean }) {
+function BossBubble({ boss }: { boss: Boss }) {
   if (!boss.seated || boss.pose === "plain") return null;
-  const thanks = thanking && boss.pose === "write";
+  const thanks = boss.thanking;
   const eureka = boss.pose === "write" && boss.cheering && !thanks;
   const thinking = (boss.pose === "think" || boss.pose === "write") && !thanks && !eureka;
   if (thinking) return <ThinkingBulb boss={boss} />;
@@ -261,13 +261,13 @@ function BossBubble({ boss, thanking }: { boss: Boss; thanking: boolean }) {
     <div
       className={cn(
         styles.bubble,
-        boss.pose === "confused" && styles.ask,
+        boss.pose === "confused" && !thanks && styles.ask,
         (boss.pose === "approve" || thanks) && styles.glad,
         eureka && styles.eureka
       )}
       style={position(boss)}
     >
-      {boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : thanks ? "고마워요" : "유레카!"}
+      {thanks ? "고마워요" : boss.pose === "confused" ? <b>?</b> : boss.pose === "approve" ? "수고했어요!" : "유레카!"}
     </div>
   );
 }

@@ -69,6 +69,8 @@ export type Boss = {
   fading: boolean;
   // 혼자 쓰다가 한 묶음을 다 써서 두 팔을 번쩍 들고 종이를 흩뿌리는 중.
   cheering: boolean;
+  // 비서가 커피를 건네는 동안 고마워한다. 직원이 일하거나 허용을 기다리는 중에도 답하고, 결재(수고했어요)만 양보한다.
+  thanking: boolean;
 };
 
 type Phase = "to-work" | "idle" | "to-wait" | "waiting" | "sad" | "glad" | "stop" | "to-report" | "reporting" | "leaving";
@@ -140,6 +142,7 @@ export class SceneEngine {
     moving: false,
     fading: false,
     cheering: false,
+    thanking: false,
     path: [],
     frameTime: 0,
     phase: "gone",
@@ -215,6 +218,7 @@ export class SceneEngine {
     this.chief.pose = this.bossPose();
     this.advanceWriting(dt);
     this.advanceSecretary(dt);
+    this.chief.thanking = this.chief.phase === "seated" && this.helper?.serving === true && this.chief.pose !== "approve";
     // 보스와 비서까지 퇴근한 뒤에 불이 꺼진다.
     if (!this.lit || this.chief.phase !== "gone" || this.helper) return;
     this.emptyTime += dt;
