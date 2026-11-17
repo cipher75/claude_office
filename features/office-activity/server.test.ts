@@ -223,3 +223,34 @@ describe("transcript의 중단 시각을 상태 판정까지 전달하기", () =
     expect(h.session()).toMatchObject({ inTurn: true, characters: [expect.objectContaining({ id: "new-call" })] });
   });
 });
+
+test.each([true, false])("같은 턴의 늦은 옛 결과가 새 ID 없는 대기를 끝내지 않는다 (실행 %s)", (executed) => {
+  const h = harness();
+  h.send("UserPromptSubmit", 2000);
+  h.send("PermissionRequest", 4000, call);
+  h.append(
+    { type: "assistant", timestamp: new Date(2100).toISOString(), message: { content: [
+      { type: "tool_use", id: "old", name: call.tool_name, input: call.tool_input },
+    ] } },
+    { ...result("old"), timestamp: new Date(3000).toISOString() },
+    executed ? { type: "attachment", attachment: { hookName: "PostToolUse:Read", toolUseID: "old" } } : request(4100),
+  );
+  expect(h.session().characters).toEqual([expect.objectContaining({ orphan: true, status: "waiting" })]);
+});
+
+
+test("대기 이후 완료된 transcript 결과는 ID를 복구해 허용됨으로 정리한다", () => {
+  const h = harness();
+  h.send("UserPromptSubmit", 2000);
+  h.send("PermissionRequest", 4000, call);
+  h.append(
+    { type: "assistant", timestamp: new Date(3900).toISOString(), message: { content: [
+      { type: "tool_use", id: "current", name: call.tool_name, input: call.tool_input },
+    ] } },
+    { type: "user", timestamp: new Date(4500).toISOString(), message: { content: [
+      { type: "tool_result", tool_use_id: "current", content: "done" },
+    ] } },
+    { type: "attachment", attachment: { hookName: "PostToolUse:Read", toolUseID: "current" } },
+  );
+  expect(h.session().characters).toEqual([expect.objectContaining({ id: "current", status: "approved" })]);
+});

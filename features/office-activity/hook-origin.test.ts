@@ -102,3 +102,14 @@ describe("hook 경로", () => {
     expect(h.session()).toBeUndefined();
   });
 });
+
+test.each(["UserPromptSubmit", "PreToolUse"])("이전 hook의 한쪽이 빠져도 %s 뒤 다음 턴의 종료를 받는다", (start) => {
+  const h = harness();
+  h.skill("OfficeConnect");
+  h.skill("UserPromptSubmit", { prompt: "계속" });
+  h.skill("Stop", { last_assistant_message: "네." });
+  h.settings(start, start === "PreToolUse" ? read : { prompt: "계속" });
+  expect(h.session().inTurn).toBe(true);
+  h.settings("Stop", { last_assistant_message: "네." });
+  expect(h.session()).toMatchObject({ inTurn: false, lit: false });
+});
