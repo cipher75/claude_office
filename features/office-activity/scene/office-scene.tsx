@@ -348,11 +348,19 @@ function SecretarySprite({ secretary }: { secretary: Secretary }) {
   );
 }
 
+const LEAVING_TEXT: Partial<Record<Walker["bubble"], string>> = {
+  sad: "거절됨 · 퇴근할게요",
+  glad: "허용됨 · 일 마쳤어요",
+  done: "일 마쳤어요",
+  stop: "중단됨 · 퇴근할게요",
+};
+
 function WalkerBubble({ walker }: { walker: Walker }) {
   // 화면 가장자리나 보스 옆(결재 중)에서는 말풍선을 안쪽·보스 반대쪽으로 치우친다.
   const edge = walker.x < 70 ? styles.edgeLeft : walker.x > 262 || walker.reporting ? styles.edgeRight : "";
   const kindColor = { "--kind": KIND_STYLE[walker.kind].accent } as React.CSSProperties;
-  const speaker = walker.speaker ? `${walker.speaker} · ` : "";
+  // 세션이 여럿 일하면 어느 세션의 캐릭터인지 앞에 적는다. 좁은 화면에서는 따로 한 줄을 써서 잘리지 않게 한다.
+  const speaker = walker.speaker ? <small className={styles.speaker}>{walker.speaker}</small> : null;
 
   return (
     <div
@@ -362,28 +370,22 @@ function WalkerBubble({ walker }: { walker: Walker }) {
         walker.bubble === "ask" && styles.ask,
         walker.bubble === "sad" && styles.sad,
         (walker.bubble === "glad" || walker.bubble === "done") && styles.glad,
-        walker.bubble === "stop" && styles.stop
+        walker.bubble === "stop" && styles.stop,
+        speaker && styles.withSpeaker
       )}
       style={{ ...position(walker), ...kindColor, opacity: walker.fading ? 0 : 1 }}
     >
       {walker.bubble === "ask" ? (
         <>
           <b>?</b>
-          <span>{walker.label}</span>
-          {walker.speaker ? <small className={styles.mobileSpeaker}>{walker.speaker}</small> : null}
+          {speaker}
+          <span className={styles.text}>{walker.label}</span>
         </>
-      ) : walker.bubble === "sad" ? (
-        `${speaker}거절됨 · 퇴근할게요`
-      ) : walker.bubble === "glad" ? (
-        `${speaker}허용됨 · 일 마쳤어요`
-      ) : walker.bubble === "done" ? (
-        `${speaker}일 마쳤어요`
-      ) : walker.bubble === "stop" ? (
-        `${speaker}중단됨 · 퇴근할게요`
       ) : (
         <>
-          <i className={styles.dot} />
-          {walker.label}
+          {walker.bubble === "work" ? <i className={styles.dot} /> : null}
+          {speaker}
+          <span className={styles.text}>{LEAVING_TEXT[walker.bubble] ?? walker.label}</span>
         </>
       )}
     </div>

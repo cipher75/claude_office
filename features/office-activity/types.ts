@@ -15,8 +15,6 @@ export type Character = {
   kind: CharacterKind;
   status: CharacterStatus;
   label: string;
-  // 사무실별로 합친 화면의 말풍선 제공자 표시. 세션 번호가 있으면 함께 표시한다.
-  speaker?: string;
   toolName: string;
   toolInput: unknown;
   since: number;
@@ -55,6 +53,8 @@ export type Session = {
   // 호스팅으로 보낼 때 전체 경로 대신 붙이는 저장소 구분값. 경로를 되돌릴 수 없는 짧은 해시다.
   projectId?: string;
   connected: boolean;
+  // 같은 프로젝트 안의 세션 번호. 로컬은 세션 순서로 정하고, 호스팅으로 보낼 때만 그 값을 채운다.
+  number?: number;
   // /office close로 연결을 끊었다. 다시 /office로 연결하기 전까지 이 세션의 이벤트를 반영하지 않는다.
   closed?: boolean;
   // 연결된 세션의 진행 중 턴·캐릭터가 있으면 켠다. Claude는 연결 직후 대기 장면도 유지한다.
