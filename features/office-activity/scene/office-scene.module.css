@@ -188,6 +188,8 @@
   white-space: nowrap;
   transform: translate(-50%, -100%);
   transition: opacity 0.35s;
+  /* 말풍선은 캐릭터 위치(y)로 겹침 순서를 정하는 보스 책상 앞판과 캐릭터보다 항상 위에 그린다. */
+  z-index: 1000;
 }
 
 .bubble::after {
@@ -236,9 +238,21 @@
   background: #fff3b0;
 }
 
-.mobileSpeaker {
-  display: none;
+.speaker {
   font-size: inherit;
+  font-weight: 700;
+}
+
+.speaker::after {
+  content: " ·";
+}
+
+.ask .speaker {
+  font-size: clamp(9px, calc(var(--p) * 3.4), 12px);
+}
+
+.ask .speaker::after {
+  content: none;
 }
 
 .ask b {
@@ -432,11 +446,22 @@
 }
 
 @container (max-width: 480px) {
-  .ask span {
+  .ask .text {
     display: none;
   }
-  .mobileSpeaker {
-    display: block;
+  /* 좁은 화면에서는 세션 표시를 윗줄에 따로 쓰고, 긴 도구 이름은 줄여 말풍선이 장면 밖으로 나가지 않게 한다. */
+  .withSpeaker {
+    flex-direction: column;
+    gap: 0;
+  }
+  .withSpeaker .dot,
+  .speaker::after {
+    display: none;
+  }
+  .text {
+    max-width: calc(var(--p) * 110);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 

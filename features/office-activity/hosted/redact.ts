@@ -1,3 +1,4 @@
+import { sessionNumbers } from "../project-office";
 import type { Character, OfficeState, Session } from "../types";
 
 // 호스팅으로 보내기 전에 상태를 줄인다. PC를 떠나는 것은 호출의 상태와 종류, 도구 이름, 파일 이름,
@@ -10,10 +11,12 @@ const FILE_TOOLS = new Set(["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"
 
 export function redactState(state: OfficeState): OfficeState {
   const sessions: Record<string, Session> = {};
+  // 빼는 종료 세션 때문에 남은 세션의 번호가 호스팅에서 당겨지지 않게 한다.
+  const numbers = sessionNumbers(state);
   for (const [id, session] of Object.entries(state.sessions)) {
     // 로컬 화면처럼 퇴근 캐릭터가 남은 종료 세션은 보내고, 완전히 비면 빼서 누적되지 않게 한다.
     if (!session.connected && session.characters.length === 0) continue;
-    const redacted: Session = { ...session, characters: session.characters.map(redactCharacter) };
+    const redacted: Session = { ...session, number: numbers[id], characters: session.characters.map(redactCharacter) };
     delete redacted.cwd;
     // 이름이 같은 다른 저장소가 호스팅에서 한 사무실로 합쳐지지 않도록, 경로 대신 구분값만 보낸다.
     if (session.projectRoot) redacted.projectId = shortHash(session.projectRoot);
