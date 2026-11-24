@@ -5,7 +5,8 @@ import type { PlanItem, PlanItemStatus } from "./types";
 //   번호로 끝내고 시작하기(done, start, 1부터 센다)다. 턴을 마치는 mcp__ccd_turn__wrap_up은 남은 항목을 모두 끝낸다.
 // - Claude Code CLI: TodoWrite. 입력이 언제나 전체 목록(todos)이다.
 
-const PLAN_TOOLS = new Set(["mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up", "TodoWrite"]);
+export const PLAN_TOOL_NAMES = ["mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up", "TodoWrite"] as const;
+const PLAN_TOOLS = new Set<string>(PLAN_TOOL_NAMES);
 const CONTENT_MAX = 60;
 
 export function isPlanTool(toolName: string | undefined): boolean {

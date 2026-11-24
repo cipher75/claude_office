@@ -15,7 +15,8 @@ import { applyHookEvent, emptyOfficeState, pruneOfficeState } from "./session-st
 import { finishedTaskToolUseIds } from "./task-notification";
 import { latestModelRequestAt } from "./model-request";
 import { readTurnInterruptions, type InterruptionReaderState, type TurnInterruption } from "./turn-interrupt";
-import { emptyReaderState, followTranscript, readCallOutcomes, stopFollowing } from "./transcript-watch";
+import { PLAN_TOOL_NAMES } from "./task-plan";
+import { earlierToolCalls, emptyReaderState, followTranscript, readCallOutcomes, stopFollowing } from "./transcript-watch";
 import type { OfficeState } from "./types";
 
 // 서버 전용 진입점: hook 이벤트를 받아 사무실 상태를 만들고, 화면에 알린다.
@@ -294,7 +295,7 @@ function followTranscripts(payload: Record<string, unknown>) {
   // followTranscript는 같은 파일에 대해 처음 넘긴 콜백만 쓰므로, 아직 판단하지 못한 결과도 그 콜백이 들고 있는다.
   let reader = emptyReaderState();
   let interruptionReader: InterruptionReaderState = {};
-  followTranscript(sessionId, transcript, (lines) => {
+  const start = followTranscript(sessionId, transcript, (lines) => {
     const read = readCallOutcomes(reader, lines);
     reader = read.state;
     const interrupted = readTurnInterruptions(interruptionReader, lines);
@@ -341,6 +342,16 @@ function followTranscripts(payload: Record<string, unknown>) {
     // 일반 Esc 중단은 결과 표시를 보존한 뒤 시각으로 판정한다. 시각이 없어도 관측 이벤트는 남긴다.
     interrupted.interruptions.filter((interruption) => interruption.kind === "turn").forEach(forwardInterruption);
   });
+  // 처음 지켜보기 시작할 때만, 그 전의 기록에 남은 task 목록 호출을 넘긴다.
+  if (start !== undefined && !session.plan) {
+    const calls = earlierToolCalls(transcript, start, PLAN_TOOL_NAMES);
+    if (calls.length) {
+      ingestHookEvent({
+        hook_event_name: "TranscriptPlanCalls", session_id: sessionId,
+        calls: calls.map((c) => ({ tool_use_id: c.toolUseId, tool_name: c.toolName, tool_input: c.toolInput })),
+      });
+    }
+  }
 }
 
 // 호스팅 주소와 보내기 토큰이 설정되어 있으면, 줄인 상태를 호스팅으로 올리는 전달기를 켠다.

@@ -1200,3 +1200,27 @@ describe("허용 대기 ID 복구의 수명", () => {
     expect(session(state).characters).toEqual([expect.objectContaining({ orphan: true, status: "waiting", turnId: "new" })]);
   });
 });
+
+describe("연결 전에 만든 task 목록 되살리기", () => {
+  const plan = (id: string, input: unknown) => ({ tool_use_id: id, tool_name: "mcp__ccd_turn__update_plan", tool_input: input });
+  const items = { items: ["읽기", "고치기", "검사"].map((content, i) => ({ content, status: i ? "pending" : "in_progress" })) };
+  const restore = (...calls: unknown[]) => ({ hook_event_name: "TranscriptPlanCalls", session_id: S, calls });
+
+  test("연결 뒤 변경분만 와도, 연결 전 기록의 전체 목록부터 다시 반영해 칠판에 그린다", () => {
+    const live = { hook_event_name: "PostToolUse", session_id: S, ...plan("p3", { done: [1, 2], start: 3 }) };
+    let state = apply(emptyOfficeState(), connect, live);
+    expect(session(state).plan).toBeUndefined();
+
+    state = apply(state, restore(plan("p1", items), plan("p2", { advance: true }), plan("p3", { done: [1, 2], start: 3 })));
+    expect(session(state).plan?.map((item) => item.status)).toEqual(["completed", "completed", "in_progress"]);
+    expect(session(state).planCallIds).toEqual(["p3", "p1", "p2"]);
+  });
+
+  test("이미 목록을 알면 지난 기록으로 덮어쓰지 않고, 모르는 세션은 새로 만들지 않는다", () => {
+    const known = apply(emptyOfficeState(), connect, { hook_event_name: "PostToolUse", session_id: S, ...plan("new", items) });
+    const after = apply(known, restore(plan("old", { items: [{ content: "옛 목록", status: "completed" }] })));
+    expect(session(after).plan?.[0].content).toBe("읽기");
+
+    expect(apply(emptyOfficeState(), restore(plan("p1", items))).sessions[S]).toBeUndefined();
+  });
+});

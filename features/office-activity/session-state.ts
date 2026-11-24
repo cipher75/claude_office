@@ -195,6 +195,11 @@ export function applyHookEvent(
       if (isAsyncLaunch(payload)) session = markBackground(session, payload);
       else session = finishCall(session, text(payload.tool_use_id), now);
       break;
+    // 사무실에 연결하기 전에 만든 task 목록. 연결 뒤에는 "1–3번 완료" 같은 변경분만 와서 목록을 그릴 수 없으므로,
+    // 지켜보기 전의 기록에 남은 목록 호출을 처음부터 다시 반영한다. 이미 목록을 알면 건드리지 않는다.
+    case "TranscriptPlanCalls":
+      if (!session.plan && Array.isArray(payload.calls)) session = restorePlan(session, payload.calls);
+      break;
     // 백그라운드 sub-agent가 끝나면 그 안의 허용 창도 닫혔다. 그 sub-agent의 남은 호출도 함께 정리한다.
     case "TranscriptTaskFinished": {
       const finished = session.characters.find((c) => c.id === text(payload.tool_use_id))?.launchedAgentId;
@@ -484,6 +489,7 @@ function withOrphan(session: Session, payload: Payload, now: number, agentId?: s
 //   나머지 hook은 /office 스킬에 걸려 연결한 세션에서만 온다.
 // - 서버가 transcript에서 읽어 만든 이벤트: 연결하지 않은 세션의 transcript에서 나왔을 수 있다.
 const ONLY_KNOWN_SESSIONS = new Set([
+  "TranscriptPlanCalls",
   // 모르는 세션이 끝났다는 신호로 탭을 새로 만들 까닭은 없다.
   "SessionEnd",
   "PermissionRequest",
@@ -614,6 +620,14 @@ function withPlanCall(session: Session, payload: Payload): Session {
   const next: Session = { ...session, planCallIds, plan };
   if (!plan) delete next.plan;
   return next;
+}
+
+// 목록이 없을 때 반영한 변경분 호출은 아무것도 바꾸지 못했으므로, 그 호출까지 포함해 처음부터 다시 반영한다.
+function restorePlan(session: Session, calls: unknown[]): Session {
+  let restored: Session = { ...session, planCallIds: [] };
+  for (const call of calls) if (isRecord(call)) restored = withPlanCall(restored, call);
+  const planCallIds = [...new Set([...(session.planCallIds ?? []), ...(restored.planCallIds ?? [])])].slice(-PLAN_CALLS_MAX);
+  return { ...restored, planCallIds };
 }
 
 function markBackground(session: Session, payload: Payload): Session {
