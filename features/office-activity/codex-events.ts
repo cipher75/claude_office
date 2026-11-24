@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { createCodexCodeReader } from "./codex-code-results";
 import type { CodexCodeCall, CodexRejection } from "./codex-rejections";
 
@@ -18,24 +18,61 @@ export function codexOfficeEvent(payload: Record<string, unknown>): Record<strin
 
 export type CodexOutcome = { id: string; status: "declined" | "completed" | "failed"; turnId?: string; completedAt?: number; toolName?: string; toolInput?: unknown };
 
+export type CodexTranscript = { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[]; codeCalls: CodexCodeCall[] };
+
+// 같은 기록을 hook과 감시가 계속 다시 읽으므로, 파일마다 해석한 위치와 결과를 기억해 두고 새로 붙은 줄만 해석한다.
+// 파일이 줄거나 다른 파일로 바뀌면(inode가 달라지면) 처음부터 다시 읽는다.
+type Cursor = {
+  ino: number;
+  offset: number;
+  reviewer?: string;
+  outcomes: CodexOutcome[];
+  code: ReturnType<typeof createCodexCodeReader>;
+};
+const CURSORS_MAX = 50;
+const cursors = ((globalThis as typeof globalThis & { __officeCodexCursors?: Map<string, Cursor> })
+  .__officeCodexCursors ??= new Map<string, Cursor>());
+
 // 완성된 JSONL 레코드만 읽는다. 기록이 늦거나 마지막 줄이 미완성이면 다음 감시 때 다시 확인한다.
-export function readCodexTranscript(path: unknown): { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[]; codeCalls: CodexCodeCall[] } {
-  const result: { reviewer?: string; outcomes: CodexOutcome[]; rejections: CodexRejection[]; codeCalls: CodexCodeCall[] } = { outcomes: [], rejections: [], codeCalls: [] };
-  if (typeof path !== "string" || !path) return result;
-  let content: string;
-  try { content = readFileSync(path, "utf8"); } catch { return result; }
-  const code = createCodexCodeReader();
-  for (const line of content.split("\n").slice(0, -1)) {
+export function readCodexTranscript(path: unknown): CodexTranscript {
+  if (typeof path !== "string" || !path) return { outcomes: [], rejections: [], codeCalls: [] };
+  let stat;
+  try { stat = statSync(path); } catch { return { outcomes: [], rejections: [], codeCalls: [] }; }
+  let cursor = cursors.get(path);
+  if (!cursor || cursor.ino !== stat.ino || stat.size < cursor.offset) {
+    cursor = { ino: stat.ino, offset: 0, outcomes: [], code: createCodexCodeReader() };
+    cursors.delete(path);
+    cursors.set(path, cursor);
+    if (cursors.size > CURSORS_MAX) cursors.delete(cursors.keys().next().value as string);
+  }
+  if (stat.size > cursor.offset) {
+    let chunk: Buffer;
+    try { chunk = readRange(path, cursor.offset, stat.size); } catch { chunk = Buffer.alloc(0); }
+    // 줄바꿈 경계에서 자르므로 여러 바이트 글자가 잘리지 않는다. 미완성 줄은 다음에 처음부터 다시 읽는다.
+    const end = chunk.lastIndexOf(0x0a) + 1;
+    parse(cursor, chunk.subarray(0, end).toString("utf8"));
+    cursor.offset += end;
+  }
+  return {
+    ...(cursor.reviewer !== undefined ? { reviewer: cursor.reviewer } : {}),
+    outcomes: [...cursor.outcomes],
+    rejections: [...cursor.code.rejections],
+    codeCalls: [...cursor.code.calls.values()],
+  };
+}
+
+function parse(cursor: Cursor, text: string) {
+  for (const line of text.split("\n").slice(0, -1)) {
     let row;
     try { row = JSON.parse(line); } catch { continue; }
     const payload = row?.payload;
     if (row?.type === "response_item" && payload && typeof payload === "object") {
-      code.read(payload);
+      cursor.code.read(payload);
     }
-    if (row?.type === "turn_context" && typeof payload?.approvals_reviewer === "string") result.reviewer = payload.approvals_reviewer;
+    if (row?.type === "turn_context" && typeof payload?.approvals_reviewer === "string") cursor.reviewer = payload.approvals_reviewer;
     if (row?.type !== "event_msg") continue;
     if (payload?.type === "thread_settings_applied" && typeof payload.thread_settings?.approvals_reviewer === "string") {
-      result.reviewer = payload.thread_settings.approvals_reviewer;
+      cursor.reviewer = payload.thread_settings.approvals_reviewer;
     }
     const item = payload?.item;
     if (payload?.type !== "item_completed" || !["declined", "completed", "failed"].includes(item?.status) || typeof item.id !== "string") continue;
@@ -47,9 +84,16 @@ export function readCodexTranscript(path: unknown): { reviewer?: string; outcome
       outcome.toolName = "Bash";
       outcome.toolInput = { command: command[2] };
     }
-    result.outcomes.push(outcome);
+    cursor.outcomes.push(outcome);
   }
-  result.codeCalls = [...code.calls.values()];
-  result.rejections = code.rejections;
-  return result;
+}
+
+function readRange(path: string, start: number, end: number): Buffer {
+  const buffer = Buffer.alloc(end - start);
+  const fd = openSync(path, "r");
+  try {
+    return buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, start));
+  } finally {
+    closeSync(fd);
+  }
 }
