@@ -115,6 +115,15 @@ describe("호출의 실행 여부 읽기", () => {
     expect(read(lines).outcomes).toEqual([{ toolUseId: "a1", executed: true, async: true, rejected: false }]);
   });
 
+  test.each([
+    ["Bash", { stdout: "", stderr: "", interrupted: false, backgroundTaskId: "b1" }],
+    ["Monitor", { taskId: "b1", timeoutMs: 1_800_000, persistent: true }],
+  ])("백그라운드로 실행한 %s의 시작 결과도 async로 표시한다", (_, toolUseResult) => {
+    const lines = [result("b1", "Command running in background with ID: b1.", toolUseResult), postRecord("b1")];
+
+    expect(read(lines).outcomes).toEqual([{ toolUseId: "b1", executed: true, async: true, rejected: false }]);
+  });
+
   test("백그라운드로 시작한 결과에서 시작한 sub-agent의 id를 함께 넘긴다", () => {
     const lines = [
       result("a1", "Async agent launched", { isAsync: true, status: "async_launched", agentId: "agent-1" }),

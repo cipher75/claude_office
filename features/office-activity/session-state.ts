@@ -4,6 +4,7 @@ import type {
   OfficeState,
   Session,
 } from "./types";
+import { isBackgroundLaunch } from "./background-launch";
 import { applyPlanCall, isPlanTool } from "./task-plan";
 import { codexInputMatches } from "./codex-input";
 
@@ -190,12 +191,12 @@ export function applyHookEvent(
     case "TranscriptExecuted":
       // 실패한 호출은 목록을 바꾸지 못했다. transcript로 온 실행 신호도 실패 기록이면 반영하지 않는다.
       if (eventName !== "PostToolUseFailure" && payload.failed !== true) session = withPlanCall(session, payload);
-      // 백그라운드로 시작한 sub-agent는 응답이 시작만 알린다. 끝났다는 hook 이벤트는 오지 않으므로
+      // 백그라운드로 시작한 sub-agent, Bash, Monitor는 응답이 시작만 알린다. 끝났다는 hook 이벤트는 오지 않으므로
       // 캐릭터를 남겨 두고, 서버가 transcript에서 찾은 TranscriptTaskFinished에서 정리한다.
       if (isAsyncLaunch(payload)) session = markBackground(session, payload);
       else session = finishCall(session, text(payload.tool_use_id), now);
       break;
-    // 백그라운드 sub-agent가 끝나면 그 안의 허용 창도 닫혔다. 그 sub-agent의 남은 호출도 함께 정리한다.
+    // 백그라운드 작업이 끝났다. sub-agent였으면 그 안의 허용 창도 닫혔으므로 그 sub-agent의 남은 호출도 함께 정리한다.
     case "TranscriptTaskFinished": {
       const finished = session.characters.find((c) => c.id === text(payload.tool_use_id))?.launchedAgentId;
       session = finishCall(session, text(payload.tool_use_id), now);
@@ -566,8 +567,7 @@ function endUnexecuted(session: Session, id: string | undefined, status: "denied
 }
 
 function isAsyncLaunch(payload: Payload): boolean {
-  const response = payload.tool_response;
-  return isRecord(response) && response.isAsync === true;
+  return isBackgroundLaunch(payload.tool_response);
 }
 
 // 호출이 실행되어 끝났다. 허용 대기였던 호출은 허용된 것이므로 퇴근 장면을 위해 approved로 남긴다.
