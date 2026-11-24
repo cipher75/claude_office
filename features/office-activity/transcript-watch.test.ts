@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { emptyReaderState, followTranscript, readCallOutcomes, stopFollowing, type ReaderState } from "./transcript-watch";
+import { earlierToolCalls, emptyReaderState, followTranscript, readCallOutcomes, stopFollowing, type ReaderState } from "./transcript-watch";
 
 // 실제 transcript와 같은 모양의 줄들이다. 결과 줄 바로 다음에 PostToolUse hook 기록이 붙으면 실행된 호출이다.
 function result(toolUseId: string, content = "done", toolUseResult: unknown = {}) {
@@ -161,5 +161,37 @@ describe("transcript 지켜보기", () => {
     appendFileSync(path, `${next.slice(20)}\n`);
 
     await expect.poll(() => seen, { timeout: 3_000 }).toEqual([result("t1"), next]);
+  });
+});
+
+describe("지켜보기 전 기록의 호출 읽기", () => {
+  const use = (id: string, name: string, input: unknown, extra: Record<string, unknown> = {}) => JSON.stringify({
+    type: "assistant", ...extra, message: { content: [{ type: "tool_use", id, name, input }] },
+  });
+
+  test("고른 도구의 본 세션 호출만 순서대로 읽고, 시작 위치 뒤의 기록은 읽지 않는다", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "office-")), "session.jsonl");
+    const before = [
+      use("p1", "mcp__ccd_turn__update_plan", { items: [{ content: "읽기", status: "in_progress" }] }),
+      use("r1", "Read", { file_path: "a.ts" }),
+      use("s1", "TodoWrite", { todos: [] }, { isSidechain: true }),
+      "깨진 줄 {mcp__ccd_turn__update_plan",
+      use("p2", "mcp__ccd_turn__update_plan", { advance: true }),
+    ].join("\n") + "\n";
+    writeFileSync(path, before + use("p3", "mcp__ccd_turn__update_plan", { advance: true }) + "\n");
+
+    const calls = earlierToolCalls(path, Buffer.byteLength(before), ["mcp__ccd_turn__update_plan", "TodoWrite"]);
+    expect(calls).toEqual([
+      { toolUseId: "p1", toolName: "mcp__ccd_turn__update_plan", toolInput: { items: [{ content: "읽기", status: "in_progress" }] } },
+      { toolUseId: "p2", toolName: "mcp__ccd_turn__update_plan", toolInput: { advance: true } },
+    ]);
+  });
+
+  test("새로 지켜보기 시작하면 시작 위치를, 이미 지켜보던 파일이면 undefined를 돌려준다", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "office-")), "session.jsonl");
+    writeFileSync(path, "{}\n");
+    expect(followTranscript("earlier-test", path, () => {})).toBe(3);
+    expect(followTranscript("earlier-test", path, () => {})).toBeUndefined();
+    stopFollowing("earlier-test");
   });
 });

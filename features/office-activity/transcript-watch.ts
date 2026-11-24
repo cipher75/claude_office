@@ -17,10 +17,13 @@ function watches(): Map<string, Watch> {
   return g.__officeTranscriptWatches;
 }
 
-// 지켜보기 시작한 시점 이후에 붙는 완성된 줄만 넘긴다. 지난 기록은 화면과 관계없다.
-export function followTranscript(sessionId: string, path: string, onLines: (lines: string) => void, offset?: number): void {
+// 지켜보기 시작한 시점 이후에 붙는 완성된 줄만 넘긴다. 지난 기록이 필요하면 돌려준 시작 위치까지 따로 읽는다.
+// 새로 지켜보기 시작했으면 그 시작 위치를, 이미 지켜보던 파일이면 undefined를 돌려준다.
+export function followTranscript(
+  sessionId: string, path: string, onLines: (lines: string) => void, offset?: number
+): number | undefined {
   const all = watches();
-  if (all.has(path)) return;
+  if (all.has(path)) return undefined;
 
   // fs.watchFile은 등록 뒤 비동기로 찍은 첫 크기와 비교하므로, 그 사이에 붙은 줄은 다음 기록이 올 때까지 읽지 않는다.
   // 마지막 기록이 Esc 중단이면 다음 기록이 없어 끝내 읽지 못하므로, 읽은 위치와 직접 비교한다.
@@ -41,6 +44,26 @@ export function followTranscript(sessionId: string, path: string, onLines: (line
   const watch: Watch = { sessionId, offset: offset ?? sizeOf(path), rest: Buffer.alloc(0), timer: setInterval(check, POLL_MS) };
   watch.timer.unref?.();
   all.set(path, watch);
+  return watch.offset;
+}
+
+export type ToolCall = { toolUseId: string; toolName: string; toolInput: unknown };
+
+// 기록의 처음부터 end까지에서 이름이 names 중 하나인 본 세션의 호출을 순서대로 읽는다.
+// 사무실에 연결하기 전에 만든 task 목록처럼, 지켜보기 전의 기록에만 남은 일을 되살리는 데 쓴다.
+// 기록이 클 수 있어 도구 이름이 들어 있는 줄만 해석한다.
+export function earlierToolCalls(path: string, end: number, names: readonly string[]): ToolCall[] {
+  if (end <= 0) return [];
+  const text = readRange(path, 0, end).toString("utf8");
+  const wanted = new Set(names);
+  return text.split("\n").flatMap((line) => {
+    if (!names.some((name) => line.includes(name))) return [];
+    const entry = parse(line);
+    if (!isRecord(entry) || entry.isSidechain === true) return [];
+    return Object.entries(toolUsesOf(entry)).flatMap(([toolUseId, call]) =>
+      call.toolName && wanted.has(call.toolName) ? [{ toolUseId, toolName: call.toolName, toolInput: call.toolInput }] : []
+    );
+  });
 }
 
 export function stopFollowing(sessionId: string): void {
