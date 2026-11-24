@@ -22,7 +22,7 @@ export type Character = {
   orphan?: boolean;
   // 호출한 sub-agent의 id. 없으면 본 세션의 호출이다. 허용 요청을 짝지을 때 같은 소속끼리만 비교한다.
   agentId?: string;
-  // 백그라운드로 시작한 sub-agent: 턴이 끝나도 계속 일하고, 끝났다는 알림이 올 때 나간다.
+  // 백그라운드로 시작한 sub-agent, Bash, Monitor: 턴이 끝나도 계속 일하고, 끝났다는 알림이 올 때 나간다.
   background?: boolean;
   // 백그라운드로 시작한 sub-agent의 id(시작 응답의 agentId). 그 sub-agent 안의 호출이 가진 agentId와 같다.
   launchedAgentId?: string;

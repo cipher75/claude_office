@@ -164,6 +164,37 @@ describe("수행 중", () => {
   });
 });
 
+describe.each([
+  ["Bash", { command: "bun run dev", run_in_background: true }, { stdout: "", stderr: "", interrupted: false, backgroundTaskId: "b1" }],
+  ["Monitor", { command: "tail -F build.log" }, { taskId: "b1", timeoutMs: 1_800_000, persistent: false }],
+])("백그라운드로 실행한 %s", (toolName, toolInput, toolResponse) => {
+  const start = { hook_event_name: "PreToolUse", session_id: S, tool_use_id: "b1", tool_name: toolName, tool_input: toolInput };
+  const launched = { ...start, hook_event_name: "PostToolUse", tool_response: toolResponse };
+  const finished = { hook_event_name: "TranscriptTaskFinished", session_id: S, tool_use_id: "b1" };
+
+  test("시작 응답이 와도 끝날 때까지 남아 일하고, 턴이 끝나도 불을 켜 둔다", () => {
+    const state = apply(emptyOfficeState(), connect, start, launched, { hook_event_name: "Stop", session_id: S });
+
+    expect(session(state)).toMatchObject({
+      lit: true, doneCount: 0, characters: [expect.objectContaining({ id: "b1", status: "working", background: true })],
+    });
+  });
+
+  test("끝났다는 알림이 오면 나가고 불이 꺼진다", () => {
+    const state = apply(emptyOfficeState(), connect, start, launched, { hook_event_name: "Stop", session_id: S }, finished);
+
+    expect(session(state)).toMatchObject({ lit: false, doneCount: 1, characters: [] });
+  });
+});
+
+test("백그라운드가 아닌 Bash 명령은 끝나면 바로 나간다", () => {
+  const call = { session_id: S, tool_use_id: "t1", tool_name: "Bash", tool_input: { command: "ls" } };
+  const state = apply(emptyOfficeState(), connect, { ...call, hook_event_name: "PreToolUse" },
+    { ...call, hook_event_name: "PostToolUse", tool_response: { stdout: "a", stderr: "", interrupted: false } });
+
+  expect(session(state).characters).toEqual([]);
+});
+
 describe("백그라운드로 시작한 sub-agent", () => {
   const launch = {
     hook_event_name: "PreToolUse",

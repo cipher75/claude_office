@@ -1,5 +1,7 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 
+import { isBackgroundLaunch } from "./background-launch";
+
 // Claude Code는 허용 거절처럼 hook으로 알려 주지 않는 일을 세션 transcript에만 기록한다.
 // 이 PC의 transcript 파일에 새로 붙는 줄을 지켜보며 읽는 쪽에 넘기고, 호출의 실행 여부를 읽는 함수도 제공한다.
 
@@ -52,7 +54,7 @@ export function stopFollowing(sessionId: string): void {
   }
 }
 
-// 호출이 실제로 실행되었는지. async는 백그라운드로 시작만 알린 호출이고, agentId는 그때 시작한 sub-agent의 id다.
+// 호출이 실제로 실행되었는지. async는 백그라운드로 시작만 알린 호출(sub-agent, Bash, Monitor)이고, agentId는 그때 시작한 sub-agent의 id다.
 // rejected는 실행되지 않은 호출 중 사용자가 거절했다는 증거가 결과에 있는 경우다.
 // failed는 실행되었지만 실패한 호출(PostToolUseFailure 기록)이다.
 // toolName과 toolInput은 그 호출의 도구와 입력이다. 서버가 PreToolUse hook을 놓쳐 id 없이 만든
@@ -131,8 +133,8 @@ function resultsOf(entry: Record<string, unknown>): (PendingResult & { unknown: 
   if (entry.type !== "user" || !isRecord(entry.message) || !Array.isArray(entry.message.content)) return [];
   const summary = entry.toolUseResult;
   const completedAt = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
-  const async = isRecord(summary) && summary.isAsync === true;
-  const agentId = async && typeof summary.agentId === "string" ? summary.agentId : undefined;
+  const async = isBackgroundLaunch(summary);
+  const agentId = async && isRecord(summary) && typeof summary.agentId === "string" ? summary.agentId : undefined;
   return entry.message.content.filter(isRecord).flatMap((block) => {
     if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") return [];
     const rejected = summary === REJECTED_RESULT || isRejectionText(summary) || isRejectionText(textOf(block.content));
